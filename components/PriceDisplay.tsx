@@ -1,6 +1,6 @@
 'use client';
 
-type Currency = 'AED' | 'USD' | 'EUR';
+export type Currency = 'AED' | 'USD' | 'EUR';
 
 interface PriceDisplayProps {
   price: number | null;

@@ -4,14 +4,15 @@ import Image from 'next/image';
 import type { ComputedListing } from '@/types';
 import { DropBadge } from './DropBadge';
 import { MotivationBadge } from './MotivationBadge';
-import { PriceDisplay } from './PriceDisplay';
+import { PriceDisplay, type Currency } from './PriceDisplay';
 
 interface ListingCardProps {
   listing: ComputedListing;
+  currency?: Currency;
   onClick?: () => void;
 }
 
-export function ListingCard({ listing, onClick }: ListingCardProps) {
+export function ListingCard({ listing, currency = 'AED', onClick }: ListingCardProps) {
   const bedsLabel = listing.beds !== null ? `${listing.beds}BR` : null;
   const bathsLabel = listing.baths !== null ? `${listing.baths}BA` : null;
   const specs = [bedsLabel, bathsLabel].filter(Boolean).join(' · ');
@@ -57,7 +58,7 @@ export function ListingCard({ listing, onClick }: ListingCardProps) {
         )}
 
         {/* Price */}
-        <PriceDisplay price={listing.price} className="text-base" />
+        <PriceDisplay price={listing.price} currency={currency} className="text-base" />
 
         {/* Meta */}
         <div className="flex items-center gap-2 text-xs text-slate-500">

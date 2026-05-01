@@ -4,14 +4,15 @@ import type { ComputedListing } from '@/types';
 import { DropBadge } from './DropBadge';
 import { MotivationBadge } from './MotivationBadge';
 import { YieldDisplay } from './YieldDisplay';
-import { PriceDisplay } from './PriceDisplay';
+import { PriceDisplay, type Currency } from './PriceDisplay';
 
 interface ListingTableRowProps {
   listing: ComputedListing;
+  currency?: Currency;
   onClick?: () => void;
 }
 
-export function ListingTableRow({ listing, onClick }: ListingTableRowProps) {
+export function ListingTableRow({ listing, currency = 'AED', onClick }: ListingTableRowProps) {
   const bedsLabel = listing.beds !== null ? `${listing.beds}` : '—';
   const bathsLabel = listing.baths !== null ? `${listing.baths}` : '—';
 
@@ -35,7 +36,7 @@ export function ListingTableRow({ listing, onClick }: ListingTableRowProps) {
 
       {/* Price */}
       <td className="px-3 py-3">
-        <PriceDisplay price={listing.price} />
+        <PriceDisplay price={listing.price} currency={currency} />
       </td>
 
       {/* Drop */}
