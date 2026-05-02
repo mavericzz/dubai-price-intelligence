@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { getOffPlanAreas } from '@/lib/queries';
+
+export const dynamic = 'force-dynamic';
 import { OffPlanFeed } from './OffPlanFeed';
 
 export const metadata: Metadata = {

@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
+import dynamic from 'next/dynamic';
 import './globals.css';
-import { NavBar } from '@/components';
+
+const NavBar = dynamic(() => import('@/components/NavBar').then((m) => m.NavBar), {
+  ssr: false,
+});
 
 export const metadata: Metadata = {
   title: 'Dubai Price Intelligence',

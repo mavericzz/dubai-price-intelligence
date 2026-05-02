@@ -1,6 +1,8 @@
 import dynamic from 'next/dynamic';
 import { getListings } from '@/lib/queries';
 
+export const revalidate = 0;
+
 // Mapbox GL requires browser APIs — disable SSR for the map component
 const MapView = dynamic(() => import('./MapView'), {
   ssr: false,
