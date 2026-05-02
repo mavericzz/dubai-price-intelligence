@@ -221,3 +221,78 @@ export interface RestoreResult {
   listing: Listing;
   auditLogId: string;
 }
+
+// ---------------------------------------------------------------------------
+// DLD sync types
+// ---------------------------------------------------------------------------
+
+/** Raw transaction object returned by the Dubai Pulse DLD API. */
+export interface DLDApiTransaction {
+  /** DLD's own unique identifier for this transaction. */
+  trans_id: string;
+  area_en: string;
+  property_type_en: string;
+  rooms_en: string | null;
+  actual_worth: number;
+  instance_date: string;
+  project_name_en: string | null;
+  unit_no: string | null;
+}
+
+export interface DLDSyncResult {
+  fetched: number;
+  upserted: number;
+  matched: number;
+}
+
+// ---------------------------------------------------------------------------
+// /api/leads types
+// ---------------------------------------------------------------------------
+
+export type LeadSort = 'lead_score_desc' | 'drop_pct_desc' | 'newest';
+
+export interface LeadFilters {
+  min_drop_pct: number;
+  max_price_aed: number;
+  area?: string[];
+  property_type?: string;
+  min_score: number;
+  beds?: number;
+}
+
+/** A single lead listing returned by GET /api/leads. */
+export interface LeadListing {
+  id: string;
+  external_id: string;
+  title: string | null;
+  area: string | null;
+  sub_area: string | null;
+  property_type: string | null;
+  beds: number | null;
+  size_sqft: number | null;
+  price: number | null;
+  /** Original peak price in AED. */
+  price_original_aed: number | null;
+  drop_pct: number | null;
+  drop_abs_aed: number | null;
+  lead_score: number | null;
+  motivation_score: MotivationLabel;
+  estimated_gross_yield: number | null;
+  days_on_market: number | null;
+  listing_url: string | null;
+  image_url: string | null;
+  listing_status: ListingStatus;
+  created_at: string;
+}
+
+export interface LeadsPagination {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+}
+
+export interface LeadsResponse {
+  data: LeadListing[];
+  pagination: LeadsPagination;
+}

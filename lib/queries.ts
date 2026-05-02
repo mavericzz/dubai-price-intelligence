@@ -131,12 +131,14 @@ export async function getListings(
   sort: { field: ListingSortField; direction: SortDirection },
   page: PaginationParams,
 ): Promise<ComputedListing[]> {
-  // DB-level filters (exact column matches)
   let query = supabase.from('listings').select('*');
+
+  // Default to active listings only; callers can override by passing listing_status explicitly.
+  query = query.eq('listing_status', filters.listing_status ?? 'active');
+
   if (filters.area !== undefined) query = query.eq('area', filters.area);
   if (filters.property_type !== undefined) query = query.eq('property_type', filters.property_type);
   if (filters.beds !== undefined) query = query.eq('beds', filters.beds);
-  if (filters.is_active !== undefined) query = query.eq('is_active', filters.is_active);
   if (filters.is_off_plan !== undefined) query = query.eq('is_off_plan', filters.is_off_plan);
 
   const { data, error } = await query;
@@ -144,7 +146,6 @@ export async function getListings(
 
   let computed = await enrichListings((data ?? []) as Listing[]);
 
-  // Computed-field filters (applied after enrichment)
   if (filters.min_drop_percent !== undefined) {
     const min = filters.min_drop_percent;
     computed = computed.filter(
@@ -173,6 +174,7 @@ export async function getListingById(id: string): Promise<ComputedListing | null
     .from('listings')
     .select('*')
     .eq('id', id)
+    .eq('listing_status', 'active')
     .maybeSingle();
 
   if (error) throw error;
@@ -273,12 +275,11 @@ export async function getSimilarDrops(
   currentListingId: string,
   limit: number,
 ): Promise<ComputedListing[]> {
-  // Fetch extra rows to account for the price-drop filter applied in memory
   const { data, error } = await supabase
     .from('listings')
     .select('*')
     .eq('area', area)
-    .eq('is_active', true)
+    .eq('listing_status', 'active')
     .neq('id', currentListingId)
     .not('price', 'is', null)
     .not('peak_price', 'is', null)
@@ -343,7 +344,7 @@ export async function getActiveDropsCount(): Promise<number> {
   const { data, error } = await supabase
     .from('listings')
     .select('price, peak_price')
-    .eq('is_active', true)
+    .eq('listing_status', 'active')
     .not('price', 'is', null)
     .not('peak_price', 'is', null);
 
@@ -358,7 +359,7 @@ export async function getAvgDropPercent(): Promise<number> {
   const { data, error } = await supabase
     .from('listings')
     .select('price, peak_price')
-    .eq('is_active', true)
+    .eq('listing_status', 'active')
     .not('price', 'is', null)
     .not('peak_price', 'is', null);
 
