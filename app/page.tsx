@@ -226,7 +226,7 @@ export default function FeedPage() {
       {/* ------------------------------------------------------------------ */}
       {/* Sticky filter bar                                                    */}
       {/* ------------------------------------------------------------------ */}
-      <div className="sticky top-0 z-20 border-b border-[#1F1F2E] bg-[#09090E]/95 backdrop-blur-sm">
+      <div className="sticky top-[53px] z-20 border-b border-[#1F1F2E] bg-[#09090E]/95 backdrop-blur-sm">
         <div className="mx-auto max-w-7xl px-4 py-3">
           <div className="flex flex-wrap items-end gap-2">
             {/* Property type */}

@@ -330,7 +330,7 @@ export default function MapView({ initialListings }: Props) {
   const sidebarItems = viewportListings.length > 0 ? viewportListings : filteredListings.slice(0, 50);
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-[#09090E]">
+    <div className="relative flex h-[calc(100vh-53px)] w-screen overflow-hidden bg-[#09090E]">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div

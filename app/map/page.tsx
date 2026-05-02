@@ -8,7 +8,7 @@ const MapView = dynamic(() => import('./MapView'), {
     <div
       style={{
         background: '#09090E',
-        height: '100vh',
+        height: 'calc(100vh - 53px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

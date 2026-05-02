@@ -6,3 +6,4 @@ export { ContactAgentButton } from './ContactAgentButton';
 export { StatBar } from './StatBar';
 export { ListingCard } from './ListingCard';
 export { ListingTableRow } from './ListingTableRow';
+export { NavBar } from './NavBar';
