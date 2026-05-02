@@ -29,12 +29,16 @@ export async function generateMetadata({
 }: {
   params: { id: string };
 }): Promise<Metadata> {
-  const listing = await getListingById(params.id);
-  if (!listing) return { title: 'Listing not found' };
-  return {
-    title: listing.title ?? `Listing in ${listing.area ?? 'Dubai'}`,
-    description: `Price: AED ${listing.price?.toLocaleString()} · ${listing.area}`,
-  };
+  try {
+    const listing = await getListingById(params.id);
+    if (!listing) return { title: 'Listing not found' };
+    return {
+      title: listing.title ?? `Listing in ${listing.area ?? 'Dubai'}`,
+      description: `Price: AED ${listing.price?.toLocaleString()} · ${listing.area}`,
+    };
+  } catch {
+    return { title: 'Listing not found' };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +112,12 @@ export default async function ListingDetailPage({
 }: {
   params: { id: string };
 }) {
-  const listing = await getListingById(params.id);
+  let listing;
+  try {
+    listing = await getListingById(params.id);
+  } catch {
+    notFound();
+  }
   if (!listing) notFound();
 
   const [priceHistory, comps, yieldTrend, similarDrops] = await Promise.all([

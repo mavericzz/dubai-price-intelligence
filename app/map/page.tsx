@@ -27,11 +27,16 @@ export const metadata = {
 };
 
 export default async function MapPage() {
-  const listings = await getListings(
-    { is_active: true },
-    { field: 'drop_percent', direction: 'desc' },
-    { page: 1, limit: 2000 },
-  );
+  let listings: Awaited<ReturnType<typeof getListings>> = [];
+  try {
+    listings = await getListings(
+      { is_active: true },
+      { field: 'drop_percent', direction: 'desc' },
+      { page: 1, limit: 2000 },
+    );
+  } catch {
+    // Degrade gracefully — map loads empty
+  }
 
   return <MapView initialListings={listings} />;
 }
