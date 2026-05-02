@@ -8,5 +8,14 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["types", "lib"]
+  "include": ["types", "lib"],
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS",
+      "moduleResolution": "node",
+      "ignoreDeprecations": "6.0",
+      "types": ["node"],
+      "rootDir": "."
+    }
+  }
 }
