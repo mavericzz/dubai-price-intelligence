@@ -5,7 +5,11 @@ import type {
   DLDRental,
   ComputedListing,
   MotivationLabel,
+  DealScoreBreakdown,
 } from '../types';
+
+// Minimum rental records required at a given comp tier before we trust the average.
+export const MIN_RENTAL_COMPS = 3;
 
 // 1
 export function calcDropAmountAed(
@@ -134,6 +138,41 @@ export function calcPsfVsAreaAvg(
   return ((listingPsf - areaAvgPsf) / areaAvgPsf) * 100;
 }
 
+// 10 — composite deal score 0–100 with breakdown
+export function calcDealScore(
+  dropPercent: number | null,
+  dropCount: number,
+  daysOnMarket: number | null,
+  estimatedGrossYield: number | null,
+): { score: number; breakdown: DealScoreBreakdown } {
+  // 0–30: scales linearly from 0 to a 20 % drop
+  const dropPctScore = dropPercent !== null ? Math.min(30, (dropPercent / 20) * 30) : 0;
+  // 0–20: each price cut (capped at 3) adds points
+  const repeatCutsScore = Math.min(20, (dropCount / 3) * 20);
+  // 0–20: days on market capped at 180
+  const domScore = daysOnMarket !== null ? Math.min(20, (daysOnMarket / 180) * 20) : 0;
+  // 0–20: gross yield capped at 10 %
+  const yieldScore = estimatedGrossYield !== null ? Math.min(20, (estimatedGrossYield / 10) * 20) : 0;
+  // 0–10: PSF below area median — always 0 until DUB-66 DLD median data lands
+  const psfBelowMedianScore = 0;
+
+  const breakdown: DealScoreBreakdown = {
+    drop_pct_score: Math.round(dropPctScore),
+    repeat_cuts_score: Math.round(repeatCutsScore),
+    dom_score: Math.round(domScore),
+    yield_score: Math.round(yieldScore),
+    psf_below_median_score: psfBelowMedianScore,
+  };
+  const score = Math.round(
+    breakdown.drop_pct_score +
+      breakdown.repeat_cuts_score +
+      breakdown.dom_score +
+      breakdown.yield_score +
+      breakdown.psf_below_median_score,
+  );
+  return { score, breakdown };
+}
+
 // Internal helper used by computeListingFields
 export function calcAreaAvgRent(dldRentals: DLDRental[]): number | null {
   const rents = dldRentals
@@ -141,6 +180,49 @@ export function calcAreaAvgRent(dldRentals: DLDRental[]): number | null {
     .filter((v): v is number => v !== null);
   if (rents.length === 0) return null;
   return rents.reduce((sum, v) => sum + v, 0) / rents.length;
+}
+
+/**
+ * Selects the best-available set of rental comps for a listing using the same
+ * three-tier waterfall that the DB trigger uses:
+ *   1. Same building + beds + property_type (requires >= MIN_RENTAL_COMPS)
+ *   2. Same area    + beds + property_type  (requires >= MIN_RENTAL_COMPS)
+ *   3. Same area    (any beds/type)          (requires >= MIN_RENTAL_COMPS)
+ * Returns [] when no tier has sufficient comps; callers must treat that as null yield.
+ */
+export function selectRentalComps(
+  listing: Pick<Listing, 'building_name' | 'area' | 'beds' | 'property_type'>,
+  dldRentals: DLDRental[],
+): DLDRental[] {
+  // Tier 1 — building level
+  if (listing.building_name !== null) {
+    const tier1 = dldRentals.filter(
+      r =>
+        r.building_name === listing.building_name &&
+        (listing.beds === null || r.beds === listing.beds) &&
+        (listing.property_type === null || r.property_type === listing.property_type) &&
+        r.annual_rent !== null,
+    );
+    if (tier1.length >= MIN_RENTAL_COMPS) return tier1;
+  }
+
+  // Tier 2 — area + beds + property_type
+  const tier2 = dldRentals.filter(
+    r =>
+      (listing.area === null || r.area === listing.area) &&
+      (listing.beds === null || r.beds === listing.beds) &&
+      (listing.property_type === null || r.property_type === listing.property_type) &&
+      r.annual_rent !== null,
+  );
+  if (tier2.length >= MIN_RENTAL_COMPS) return tier2;
+
+  // Tier 3 — area only (broadest fallback)
+  const tier3 = dldRentals.filter(
+    r => (listing.area === null || r.area === listing.area) && r.annual_rent !== null,
+  );
+  if (tier3.length >= MIN_RENTAL_COMPS) return tier3;
+
+  return [];
 }
 
 // 10
@@ -165,6 +247,12 @@ export function computeListingFields(
   const areaAvgPsf = calcAreaAvgPsf(dldTransactions);
   const listingPsf = calcListingPsf(listing.price, listing.size_sqft);
   const psfVsAreaAvg = calcPsfVsAreaAvg(listingPsf, areaAvgPsf);
+  const { score: dealScore, breakdown: dealScoreBreakdown } = calcDealScore(
+    dropPercent,
+    dropCount,
+    listing.days_on_market,
+    estimatedGrossYield,
+  );
 
   return {
     ...listing,
@@ -177,6 +265,8 @@ export function computeListingFields(
     area_avg_psf: areaAvgPsf,
     listing_psf: listingPsf,
     psf_vs_area_avg: psfVsAreaAvg,
+    deal_score: dealScore,
+    deal_score_breakdown: dealScoreBreakdown,
   };
 }
 
@@ -192,5 +282,7 @@ export const calculations = {
   calcAreaAvgRent,
   calcListingPsf,
   calcPsfVsAreaAvg,
+  calcDealScore,
   computeListingFields,
+  selectRentalComps,
 };

@@ -11,13 +11,13 @@ import type {
   SortDirection,
   PaginationParams,
 } from '../types';
-import { computeListingFields, calcDropPercent } from './calculations';
+import { computeListingFields, calcDropPercent, selectRentalComps } from './calculations';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function enrichListings(listings: Listing[]): Promise<ComputedListing[]> {
+export async function enrichListings(listings: Listing[]): Promise<ComputedListing[]> {
   if (listings.length === 0) return [];
 
   const listingIds = listings.map((l) => l.id);
@@ -64,20 +64,14 @@ async function enrichListings(listings: Listing[]): Promise<ComputedListing[]> {
     txByArea.set(tx.area, arr);
   }
 
-  const rentByArea = new Map<string, DLDRental[]>();
-  for (const r of dldRentals) {
-    if (r.area === null) continue;
-    const arr = rentByArea.get(r.area) ?? [];
-    arr.push(r);
-    rentByArea.set(r.area, arr);
-  }
-
   return listings.map((listing) =>
     computeListingFields(
       listing,
       phByListing.get(listing.id) ?? [],
       listing.area !== null ? (txByArea.get(listing.area) ?? []) : [],
-      listing.area !== null ? (rentByArea.get(listing.area) ?? []) : [],
+      // Building-first waterfall: selectRentalComps picks the best comp tier
+      // (building → area+beds → area-all) matching the DB trigger logic.
+      selectRentalComps(listing, dldRentals),
     ),
   );
 }
@@ -374,4 +368,25 @@ export async function getAvgDropPercent(): Promise<number> {
 
   const total = drops.reduce((sum, l) => sum + (calcDropPercent(l.price, l.peak_price) ?? 0), 0);
   return total / drops.length;
+}
+
+// ---------------------------------------------------------------------------
+// Alert job helpers (used by lib/jobs/price-drop-alerts.ts)
+// These use the public supabase client because listings data is public.
+// The alert job itself uses supabaseService for watchlists + alert_log writes.
+// ---------------------------------------------------------------------------
+
+/** Fetch all active listings that have dropped below their peak price. */
+export async function getDroppedListings(): Promise<Listing[]> {
+  const { data, error } = await supabase
+    .from('listings')
+    .select('*')
+    .eq('listing_status', 'active')
+    .not('price', 'is', null)
+    .not('peak_price', 'is', null);
+
+  if (error) throw error;
+  return ((data ?? []) as Listing[]).filter(
+    (l) => l.price !== null && l.peak_price !== null && l.peak_price > l.price,
+  );
 }

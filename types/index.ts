@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Table row types — mirror public schema in supabase/schema.sql +
-// migration 001_sold_status.sql
+// migration 001_sold_status.sql + migration 002_rental_yield.sql
 // Timestamps are ISO-8601 strings as returned by the Supabase JS client.
 // ---------------------------------------------------------------------------
 
@@ -9,7 +9,28 @@ export type ListingStatus =
   | 'suspected_removed'
   | 'confirmed_sold'
   | 'off_market'
-  | 'archived';
+  | 'archived'
+  | 'sold_dld';
+
+export type CompletionStatus = 'off_plan' | 'ready';
+
+/** Payment plan breakdown stored inside off_plan_details JSONB. */
+export interface OffPlanPaymentPlan {
+  on_booking_pct: number | null;
+  during_construction_pct: number | null;
+  on_handover_pct: number | null;
+  description: string | null;
+}
+
+/** Structured off-plan data extracted by the Bayut scraper (DUB-67). */
+export interface OffPlanDetails {
+  project_name: string | null;
+  developer_name: string | null;
+  handover_date: string | null;
+  completion_status: CompletionStatus | null;
+  service_charge_per_sqft: number | null;
+  payment_plan: OffPlanPaymentPlan | null;
+}
 
 export interface Listing {
   id: string;
@@ -51,6 +72,18 @@ export interface Listing {
   price_original_aed: number | null;
   drop_pct: number | null;
   drop_abs_aed: number | null;
+  /** Stored yield percentage, recalculated by DB trigger on every price change (migration 002) */
+  estimated_gross_yield_pct: number | null;
+  // --- deal score fields (migration 003) ---
+  /** Composite deal quality score 0–100; recalculated nightly and on each price drop. */
+  deal_score: number | null;
+  /** Component breakdown for the deal score; stored as JSONB. */
+  deal_score_breakdown: DealScoreBreakdown | null;
+  // --- off-plan details fields (migration 004) ---
+  /** 'off_plan' | 'ready' | NULL — populated by scraper when ENABLE_OFF_PLAN_DETAILS=true */
+  completion_status: CompletionStatus | null;
+  /** Structured off-plan data from scraper (project/developer/handover/payment plan). */
+  off_plan_details: OffPlanDetails | null;
   created_at: string;
   updated_at: string;
 }
@@ -103,6 +136,8 @@ export interface DLDRental {
   rent_per_sqft: number | null;
   /** ISO date string (YYYY-MM-DD) */
   lease_date: string | null;
+  /** Added by migration 002 for building-level comp matching */
+  building_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -138,6 +173,10 @@ export interface Watchlist {
   email_enabled: boolean;
   whatsapp_enabled: boolean;
   whatsapp_phone: string | null;
+  /** Set when user explicitly opts in; null if never confirmed via opt-in flow */
+  whatsapp_opted_in_at: string | null;
+  /** Set when user sends STOP; opt-out wins over opt-in when non-null */
+  whatsapp_opted_out_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -147,7 +186,27 @@ export interface AlertLog {
   watchlist_id: string;
   listing_id: string;
   channel: 'email' | 'whatsapp';
+  /** Listing price captured at send time; dedup prevents re-alerting at same price */
+  price_at_alert: number | null;
   sent_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Deal score
+// ---------------------------------------------------------------------------
+
+/** Component breakdown stored as JSONB for debugging and frontend display. */
+export interface DealScoreBreakdown {
+  /** 0–30: deeper drop from peak → more points (scales linearly to 20 % drop) */
+  drop_pct_score: number;
+  /** 0–20: each repeat price cut signals more seller motivation (caps at 3 cuts) */
+  repeat_cuts_score: number;
+  /** 0–20: days on market, capped at 180 */
+  dom_score: number;
+  /** 0–20: estimated gross rental yield, capped at 10 % */
+  yield_score: number;
+  /** 0–10: listing PSF below area median — always 0 until DUB-66 DLD median data lands */
+  psf_below_median_score: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,8 +218,10 @@ export type MotivationLabel = 'HIGH' | 'MEDIUM' | 'LOW';
 /**
  * A Listing enriched with all derived fields calculated by the calculations
  * module. motivation_score is narrowed from a raw number to a labelled enum.
+ * deal_score and deal_score_breakdown override the stored DB values with
+ * live-computed equivalents.
  */
-export type ComputedListing = Omit<Listing, 'motivation_score'> & {
+export type ComputedListing = Omit<Listing, 'motivation_score' | 'deal_score' | 'deal_score_breakdown'> & {
   drop_amount_aed: number | null;
   drop_percent: number | null;
   drop_count: number;
@@ -172,6 +233,10 @@ export type ComputedListing = Omit<Listing, 'motivation_score'> & {
   listing_psf: number | null;
   /** Percentage difference: ((listing_psf - area_avg_psf) / area_avg_psf) * 100 */
   psf_vs_area_avg: number | null;
+  /** Composite deal quality score 0–100, live-computed (may differ from persisted DB value). */
+  deal_score: number;
+  /** Component breakdown for the live-computed deal score. */
+  deal_score_breakdown: DealScoreBreakdown;
 };
 
 // ---------------------------------------------------------------------------
@@ -186,10 +251,13 @@ export interface ListingFilters {
   min_yield?: number;
   motivation?: MotivationLabel;
   is_off_plan?: boolean;
+  completion_status?: CompletionStatus;
   /** Defaults to 'active' in all query functions. Pass undefined to keep default. */
   listing_status?: ListingStatus;
   /** @deprecated Use listing_status instead; kept for backwards compatibility */
   is_active?: boolean;
+  /** Filter by minimum deal score (0–100). */
+  min_deal_score?: number;
 }
 
 export type ListingSortField =
@@ -197,7 +265,8 @@ export type ListingSortField =
   | 'drop_percent'
   | 'days_on_market'
   | 'yield'
-  | 'motivation_score';
+  | 'motivation_score'
+  | 'deal_score';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -278,6 +347,8 @@ export interface LeadListing {
   lead_score: number | null;
   motivation_score: MotivationLabel;
   estimated_gross_yield: number | null;
+  /** Stored yield from DB trigger; mirrors estimated_gross_yield but persisted for direct DB queries */
+  estimated_gross_yield_pct: number | null;
   days_on_market: number | null;
   listing_url: string | null;
   image_url: string | null;
