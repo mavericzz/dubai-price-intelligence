@@ -24,10 +24,11 @@ ALTER TABLE public.listings
 -- query time. Computed at runtime from price_history when NULL.
 -- ---------------------------------------------------------------------------
 ALTER TABLE public.listings
-  ADD COLUMN IF NOT EXISTS lead_score          NUMERIC,
-  ADD COLUMN IF NOT EXISTS price_original_aed  NUMERIC,
-  ADD COLUMN IF NOT EXISTS drop_pct            NUMERIC,
-  ADD COLUMN IF NOT EXISTS drop_abs_aed        NUMERIC;
+  ADD COLUMN IF NOT EXISTS lead_score              NUMERIC,
+  ADD COLUMN IF NOT EXISTS price_original_aed      NUMERIC,
+  ADD COLUMN IF NOT EXISTS drop_pct                NUMERIC,
+  ADD COLUMN IF NOT EXISTS drop_abs_aed            NUMERIC,
+  ADD COLUMN IF NOT EXISTS estimated_gross_yield_pct NUMERIC;
 
 CREATE INDEX IF NOT EXISTS idx_listings_lead_score
   ON public.listings (lead_score)

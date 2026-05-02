@@ -11,7 +11,15 @@ import type {
   SortDirection,
   PaginationParams,
 } from '../types';
-import { computeListingFields, calcDropPercent, selectRentalComps } from './calculations';
+import {
+  computeListingFields,
+  calcDropPercent,
+  calcDropCount,
+  calcAreaAvgRent,
+  calcEstimatedGrossYield,
+  calcDealScore,
+  selectRentalComps,
+} from './calculations';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -108,6 +116,10 @@ function sortComputedListings(
         vb = order[b.motivation_score] ?? 0;
         break;
       }
+      case 'deal_score':
+        va = a.deal_score;
+        vb = b.deal_score;
+        break;
     }
     if (va === null && vb === null) return 0;
     if (va === null) return 1;
@@ -155,6 +167,10 @@ export async function getListings(
   if (filters.motivation !== undefined) {
     const motivation = filters.motivation;
     computed = computed.filter((l) => l.motivation_score === motivation);
+  }
+  if (filters.min_deal_score !== undefined) {
+    const min = filters.min_deal_score;
+    computed = computed.filter((l) => l.deal_score >= min);
   }
 
   computed = sortComputedListings(computed, sort.field, sort.direction);
@@ -389,4 +405,84 @@ export async function getDroppedListings(): Promise<Listing[]> {
   return ((data ?? []) as Listing[]).filter(
     (l) => l.price !== null && l.peak_price !== null && l.peak_price > l.price,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Deal score batch recalculation
+// Call with no args for nightly cron; pass specific IDs on each price-drop event.
+// ---------------------------------------------------------------------------
+
+/**
+ * Recomputes deal_score and deal_score_breakdown for active listings and
+ * persists the results back to the DB.
+ *
+ * Usage:
+ *   await recalculateDealScores();               // all active listings (nightly cron)
+ *   await recalculateDealScores([listingId]);     // single listing (price-drop event)
+ */
+export async function recalculateDealScores(
+  listingIds?: string[],
+): Promise<{ updated: number }> {
+  let query = supabase.from('listings').select('*').eq('listing_status', 'active');
+  if (listingIds && listingIds.length > 0) {
+    query = query.in('id', listingIds);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const listings = (data ?? []) as Listing[];
+  if (listings.length === 0) return { updated: 0 };
+
+  const ids = listings.map((l) => l.id);
+  const areas = [
+    ...new Set(listings.map((l) => l.area).filter((a): a is string => a !== null)),
+  ];
+
+  const [phResult, rentResult] = await Promise.all([
+    supabase.from('price_history').select('*').in('listing_id', ids),
+    areas.length > 0
+      ? supabase.from('dld_rentals').select('*').in('area', areas)
+      : (Promise.resolve({ data: [], error: null }) as Promise<{
+          data: DLDRental[];
+          error: null;
+        }>),
+  ]);
+
+  if (phResult.error) throw phResult.error;
+  if (rentResult.error) throw rentResult.error;
+
+  const priceHistories = (phResult.data ?? []) as PriceHistory[];
+  const dldRentals = (rentResult.data ?? []) as DLDRental[];
+
+  const phByListing = new Map<string, PriceHistory[]>();
+  for (const ph of priceHistories) {
+    const arr = phByListing.get(ph.listing_id) ?? [];
+    arr.push(ph);
+    phByListing.set(ph.listing_id, arr);
+  }
+
+  const updates = listings.map((listing) => {
+    const ph = phByListing.get(listing.id) ?? [];
+    const rentalComps = selectRentalComps(listing, dldRentals);
+
+    const dropPercent = calcDropPercent(listing.price, listing.peak_price);
+    const dropCount = calcDropCount(ph);
+    const areaAvgRent = calcAreaAvgRent(rentalComps);
+    const estimatedGrossYield = calcEstimatedGrossYield(listing.price, areaAvgRent);
+    const { score, breakdown } = calcDealScore(
+      dropPercent,
+      dropCount,
+      listing.days_on_market,
+      estimatedGrossYield,
+    );
+
+    return { id: listing.id, deal_score: score, deal_score_breakdown: breakdown };
+  });
+
+  const { error: upsertError } = await supabase
+    .from('listings')
+    .upsert(updates, { onConflict: 'id' });
+
+  if (upsertError) throw upsertError;
+  return { updated: updates.length };
 }
