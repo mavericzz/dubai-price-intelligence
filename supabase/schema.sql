@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS public.listings (
     is_active          boolean     DEFAULT true,
     motivation_score   numeric,
     days_on_market     integer,
+    lead_score         integer,
+    price_original_aed integer,
+    drop_pct           numeric(5,2),
+    drop_abs_aed       integer,
     created_at         timestamptz DEFAULT now() NOT NULL,
     updated_at         timestamptz DEFAULT now() NOT NULL
 );
@@ -62,6 +66,7 @@ CREATE TABLE IF NOT EXISTS public.price_history (
     id          uuid        DEFAULT uuid_generate_v4() PRIMARY KEY,
     listing_id  uuid        NOT NULL REFERENCES public.listings(id) ON DELETE CASCADE,
     price       numeric     NOT NULL,
+    price_aed   integer,
     recorded_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -172,10 +177,24 @@ CREATE INDEX IF NOT EXISTS idx_listings_area_type_beds  ON public.listings (area
 CREATE INDEX IF NOT EXISTS idx_listings_created_at      ON public.listings (created_at);
 
 -- ---------------------------------------------------------------------------
+-- rental_yield_benchmarks
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.rental_yield_benchmarks (
+    area_name       text        PRIMARY KEY,
+    studio_yield    numeric(4,2),
+    one_bed_yield   numeric(4,2),
+    two_bed_yield   numeric(4,2),
+    updated_at      timestamptz DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
 -- Indexes — price_history
 -- ---------------------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_price_history_listing_id ON public.price_history (listing_id);
 CREATE INDEX IF NOT EXISTS idx_price_history_recorded_at ON public.price_history (recorded_at);
+-- Composite: optimises "latest N prices for a listing" queries
+CREATE INDEX IF NOT EXISTS idx_price_history_listing_recorded
+    ON public.price_history (listing_id, recorded_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Indexes — dld_transactions
@@ -208,8 +227,9 @@ CREATE INDEX IF NOT EXISTS idx_alert_log_sent_at        ON public.alert_log (sen
 -- scoped to the owning user. Service role bypasses RLS by default in
 -- Supabase, so no explicit service-role write policies are needed.
 -- ---------------------------------------------------------------------------
-ALTER TABLE public.listings         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.price_history    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.listings                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.price_history            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rental_yield_benchmarks  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dld_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dld_rentals      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watchlists       ENABLE ROW LEVEL SECURITY;
@@ -227,6 +247,9 @@ CREATE POLICY "public_read_dld_transactions"
 
 CREATE POLICY "public_read_dld_rentals"
     ON public.dld_rentals FOR SELECT USING (true);
+
+CREATE POLICY "public_read_rental_yield_benchmarks"
+    ON public.rental_yield_benchmarks FOR SELECT USING (true);
 
 -- Authenticated users: full CRUD on their own watchlists
 CREATE POLICY "users_select_own_watchlists"

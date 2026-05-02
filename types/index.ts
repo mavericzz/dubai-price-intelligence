@@ -1,7 +1,15 @@
 // ---------------------------------------------------------------------------
-// Table row types — mirror public schema in supabase/schema.sql
+// Table row types — mirror public schema in supabase/schema.sql +
+// migration 001_sold_status.sql
 // Timestamps are ISO-8601 strings as returned by the Supabase JS client.
 // ---------------------------------------------------------------------------
+
+export type ListingStatus =
+  | 'active'
+  | 'suspected_removed'
+  | 'confirmed_sold'
+  | 'off_market'
+  | 'archived';
 
 export interface Listing {
   id: string;
@@ -30,6 +38,19 @@ export interface Listing {
   /** Raw numeric score stored by the scraper; resolved to label in ComputedListing */
   motivation_score: number | null;
   days_on_market: number | null;
+  // --- sold-status fields (migration 001) ---
+  listing_status: ListingStatus;
+  last_seen_at: string | null;
+  removed_from_portal_at: string | null;
+  sold_detected_at: string | null;
+  dld_transaction_id: string | null;
+  consecutive_404_count: number;
+  building_name: string | null;
+  unit_number: string | null;
+  lead_score: number | null;
+  price_original_aed: number | null;
+  drop_pct: number | null;
+  drop_abs_aed: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,7 +59,16 @@ export interface PriceHistory {
   id: string;
   listing_id: string;
   price: number;
+  price_aed: number | null;
   recorded_at: string;
+}
+
+export interface RentalYieldBenchmark {
+  area_name: string;
+  studio_yield: number | null;
+  one_bed_yield: number | null;
+  two_bed_yield: number | null;
+  updated_at: string | null;
 }
 
 export interface DLDTransaction {
@@ -53,6 +83,11 @@ export interface DLDTransaction {
   /** ISO date string (YYYY-MM-DD) */
   transaction_date: string | null;
   is_off_plan: boolean;
+  // --- added by migration 001 for unit-level matching ---
+  building_name: string | null;
+  unit_number: string | null;
+  transaction_type: string | null;
+  external_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -70,6 +105,22 @@ export interface DLDRental {
   lease_date: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ArchivedListing extends Listing {
+  archive_reason: string | null;
+  archived_at: string;
+}
+
+export interface ListingAuditLog {
+  id: string;
+  listing_id: string;
+  action: string;
+  old_status: string | null;
+  new_status: string | null;
+  performed_by: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export interface Watchlist {
@@ -135,6 +186,9 @@ export interface ListingFilters {
   min_yield?: number;
   motivation?: MotivationLabel;
   is_off_plan?: boolean;
+  /** Defaults to 'active' in all query functions. Pass undefined to keep default. */
+  listing_status?: ListingStatus;
+  /** @deprecated Use listing_status instead; kept for backwards compatibility */
   is_active?: boolean;
 }
 
@@ -150,4 +204,20 @@ export type SortDirection = 'asc' | 'desc';
 export interface PaginationParams {
   page: number;
   limit: number;
+}
+
+// ---------------------------------------------------------------------------
+// Status update / restore payloads
+// ---------------------------------------------------------------------------
+
+export interface StatusUpdatePayload {
+  listing_status?: ListingStatus;
+  consecutive_404_count?: number;
+  last_seen_at?: string;
+  removed_from_portal_at?: string;
+}
+
+export interface RestoreResult {
+  listing: Listing;
+  auditLogId: string;
 }
