@@ -1,14 +1,59 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
-    "skipLibCheck": true,
-    "types": ["node"]
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "paths": {
+      "@/components": [
+        "./components/index"
+      ],
+      "@/components/*": [
+        "./components/*"
+      ],
+      "@/types": [
+        "./types/index"
+      ],
+      "@/types/*": [
+        "./types/*"
+      ],
+      "@/lib/*": [
+        "./lib/*"
+      ]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["types", "lib", "pages"],
+  "include": [
+    "next-env.d.ts",
+    "types",
+    "lib",
+    "components",
+    "app",
+    "pages",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ],
   "ts-node": {
     "compilerOptions": {
       "module": "CommonJS",
