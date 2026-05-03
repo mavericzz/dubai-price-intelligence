@@ -148,7 +148,8 @@ export async function getListings(
   if (filters.beds !== undefined) query = query.eq('beds', filters.beds);
   if (filters.is_off_plan !== undefined) query = query.eq('is_off_plan', filters.is_off_plan);
 
-  const { data, error } = await query;
+  // PostgREST defaults to 1000 rows; override so we never silently truncate.
+  const { data, error } = await query.limit(10000);
   if (error) throw error;
 
   let computed = await enrichListings((data ?? []) as Listing[]);

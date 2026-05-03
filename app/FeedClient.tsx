@@ -122,7 +122,6 @@ export default function FeedClient() {
     [listings],
   );
   const todaysMarks = listings.slice(0, 5);
-  const tableRows = listings.slice(0, 12);
 
   const areaIndex = useMemo(() => {
     const map = new Map<string, { count: number; sum: number }>();
@@ -306,7 +305,7 @@ export default function FeedClient() {
           <span style={{ textAlign: 'right' }}>Cut</span>
         </div>
 
-        {tableRows.map((p, i) => {
+        {listings.map((p, i) => {
           const c = classifyCut(p.drop_percent, p.drop_count);
           const dropPct = (p.drop_percent ?? 0).toFixed(1);
           const peakPrice = p.peak_price ?? p.price ?? 0;
