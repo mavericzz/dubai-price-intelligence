@@ -5,15 +5,16 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useRouter } from 'next/navigation';
 import type { ComputedListing, ListingFilters, MotivationLabel } from '@/types';
+import { fmtAED } from '@/lib/almanac';
 
 interface Props {
   initialListings: ComputedListing[];
 }
 
 const MOTIVATION_COLORS: Record<MotivationLabel, string> = {
-  HIGH: '#ef4444',
-  MEDIUM: '#f97316',
-  LOW: '#14b8a6',
+  HIGH: '#8A2E1F',
+  MEDIUM: '#8C6A2A',
+  LOW: '#2D4A2A',
 };
 
 const DUBAI_CENTER: [number, number] = [55.2708, 25.2048];
@@ -32,7 +33,7 @@ function buildPopupHTML(listing: ComputedListing): string {
       <div class="map-popup-price">AED ${(listing.price ?? 0).toLocaleString()}</div>
       <div class="map-popup-badges">
         <span class="map-popup-drop">↓ ${(listing.drop_percent ?? 0).toFixed(1)}%</span>
-        <span class="map-popup-motivation" style="background:${motivationColor}22;color:${motivationColor}">${listing.motivation_score}</span>
+        <span class="map-popup-motivation" style="color:${motivationColor}">${listing.motivation_score}</span>
         ${listing.estimated_gross_yield ? `<span class="map-popup-yield">${listing.estimated_gross_yield.toFixed(1)}% yield</span>` : ''}
       </div>
       ${
@@ -160,7 +161,7 @@ export default function MapView({ initialListings }: Props) {
 
     const map = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: 'mapbox://styles/mapbox/light-v11',
       center: DUBAI_CENTER,
       zoom: 11,
     });
@@ -178,22 +179,21 @@ export default function MapView({ initialListings }: Props) {
         clusterRadius: 50,
       });
 
-      // Cluster circles
+      // Cluster circles — ink on paper
       map.addLayer({
         id: 'clusters',
         type: 'circle',
         source: 'listings',
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': '#6366F1',
+          'circle-color': '#16140E',
           'circle-radius': ['step', ['get', 'point_count'], 20, 10, 28, 30, 36],
-          'circle-opacity': 0.85,
+          'circle-opacity': 0.92,
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#4f46e5',
+          'circle-stroke-color': '#F1ECE0',
         },
       });
 
-      // Cluster count labels
       map.addLayer({
         id: 'cluster-count',
         type: 'symbol',
@@ -204,10 +204,9 @@ export default function MapView({ initialListings }: Props) {
           'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
           'text-size': 12,
         },
-        paint: { 'text-color': '#ffffff' },
+        paint: { 'text-color': '#F1ECE0' },
       });
 
-      // Individual pins (data-driven color and radius)
       map.addLayer({
         id: 'unclustered-point',
         type: 'circle',
@@ -216,9 +215,9 @@ export default function MapView({ initialListings }: Props) {
         paint: {
           'circle-color': ['get', 'color'],
           'circle-radius': ['get', 'radius'],
-          'circle-opacity': 0.9,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': 'rgba(255,255,255,0.25)',
+          'circle-opacity': 0.88,
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': '#F1ECE0',
         },
       });
 
@@ -330,201 +329,234 @@ export default function MapView({ initialListings }: Props) {
   const sidebarItems = viewportListings.length > 0 ? viewportListings : filteredListings.slice(0, 50);
 
   return (
-    <div className="relative flex h-[calc(100vh-53px)] w-screen overflow-hidden bg-[#09090E]">
-      {/* Mobile sidebar overlay backdrop */}
-      {sidebarOpen && (
-        <div
-          className="absolute inset-0 z-10 bg-black/50 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <aside
-        className={`absolute inset-y-0 left-0 z-20 flex w-80 flex-col bg-[#111118] border-r border-[#1F1F2E] transition-transform duration-300 md:relative md:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Sidebar header */}
-        <div className="flex items-center justify-between border-b border-[#1F1F2E] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-100">Listings</h2>
-            {activeFilterCount > 0 && (
-              <span className="rounded-full bg-[#6366F1] px-2 py-0.5 text-xs text-white">
-                {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="rounded p-1 text-slate-400 hover:text-slate-200 md:hidden"
-            aria-label="Close sidebar"
-          >
-            ✕
-          </button>
+    <div className="almanac-page" style={{ paddingBottom: 0 }}>
+      <div className="section-bar">
+        <h3>
+          The <em>Yield Atlas</em>
+        </h3>
+        <div className="section-bar-meta">
+          {filteredListings.length} entries plotted
+          {activeFilterCount > 0 && <><br />{activeFilterCount} particular{activeFilterCount > 1 ? 's' : ''} applied</>}
         </div>
+      </div>
 
-        {/* Filters */}
-        <div className="border-b border-[#1F1F2E] px-4 py-3 space-y-2">
+      {/* Filters as Almanac filter bar */}
+      <div className="filter-bar">
+        <div className="filter-group">
+          <span className="filter-label">Area</span>
           <select
+            className="filter-select"
             value={filters.area ?? ''}
             onChange={(e) => setFilters((f) => ({ ...f, area: e.target.value || undefined }))}
-            className="w-full rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 focus:border-[#6366F1] focus:outline-none"
           >
-            <option value="">All areas</option>
+            <option value="">All</option>
             {areas.map((a) => (
               <option key={a} value={a}>{a}</option>
             ))}
           </select>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Type</span>
+          <select
+            className="filter-select"
+            value={filters.property_type ?? ''}
+            onChange={(e) => setFilters((f) => ({ ...f, property_type: e.target.value || undefined }))}
+          >
+            <option value="">Any</option>
+            {propertyTypes.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Beds</span>
+          <select
+            className="filter-select"
+            value={filters.beds ?? ''}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, beds: e.target.value ? Number(e.target.value) : undefined }))
+            }
+          >
+            <option value="">Any</option>
+            {bedOptions.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Min cut %</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="0"
+            value={filters.min_drop_percent ?? ''}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, min_drop_percent: e.target.value ? Number(e.target.value) : undefined }))
+            }
+            className="filter-input"
+            min={0}
+            max={100}
+            step={1}
+          />
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Min yield %</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="0"
+            value={filters.min_yield ?? ''}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, min_yield: e.target.value ? Number(e.target.value) : undefined }))
+            }
+            className="filter-input"
+            min={0}
+            max={30}
+            step={0.5}
+          />
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Motivation</span>
+          <select
+            className="filter-select"
+            value={filters.motivation ?? ''}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, motivation: (e.target.value as MotivationLabel) || undefined }))
+            }
+          >
+            <option value="">Any</option>
+            <option value="HIGH">HIGH</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="LOW">LOW</option>
+          </select>
+          {activeFilterCount > 0 && (
+            <button type="button" className="filter-opt" onClick={resetFilters}>
+              reset
+            </button>
+          )}
+        </div>
+      </div>
 
-          <div className="flex gap-2">
-            <select
-              value={filters.property_type ?? ''}
-              onChange={(e) => setFilters((f) => ({ ...f, property_type: e.target.value || undefined }))}
-              className="flex-1 rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 focus:border-[#6366F1] focus:outline-none"
+      <div className="atlas">
+        {/* MAP CANVAS */}
+        <div className="atlas-canvas" style={{ aspectRatio: 'auto', height: 720 }}>
+          {/* Mobile sidebar toggle */}
+          <button
+            onClick={() => setSidebarOpen((o) => !o)}
+            type="button"
+            style={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              zIndex: 5,
+              background: 'var(--paper)',
+              border: '1px solid var(--rule)',
+              padding: '6px 12px',
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+            className="md:hidden"
+          >
+            {sidebarOpen ? 'Hide list' : 'Show list'}
+          </button>
+
+          {!process.env.NEXT_PUBLIC_MAPBOX_TOKEN && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontFamily: 'var(--display)',
+                fontStyle: 'italic',
+                fontSize: 18,
+                color: 'var(--ink-3)',
+                background: 'var(--paper-2)',
+                padding: 20,
+                textAlign: 'center',
+              }}
             >
-              <option value="">Type</option>
-              {propertyTypes.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
+              Set NEXT_PUBLIC_MAPBOX_TOKEN to compose the atlas.
+            </div>
+          )}
 
-            <select
-              value={filters.beds ?? ''}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, beds: e.target.value ? Number(e.target.value) : undefined }))
-              }
-              className="flex-1 rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 focus:border-[#6366F1] focus:outline-none"
-            >
-              <option value="">Beds</option>
-              {bedOptions.map((b) => (
-                <option key={b} value={b}>{b} bed{b !== 1 ? 's' : ''}</option>
-              ))}
-            </select>
-          </div>
+          <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
+        </div>
 
-          <div className="flex gap-2">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="Min drop %"
-              value={filters.min_drop_percent ?? ''}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, min_drop_percent: e.target.value ? Number(e.target.value) : undefined }))
-              }
-              className="flex-1 rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 placeholder:text-slate-600 focus:border-[#6366F1] focus:outline-none"
-            />
-            <input
-              type="number"
-              min={0}
-              max={30}
-              step={0.5}
-              placeholder="Min yield %"
-              value={filters.min_yield ?? ''}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, min_yield: e.target.value ? Number(e.target.value) : undefined }))
-              }
-              className="flex-1 rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 placeholder:text-slate-600 focus:border-[#6366F1] focus:outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <select
-              value={filters.motivation ?? ''}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, motivation: (e.target.value as MotivationLabel) || undefined }))
-              }
-              className="flex-1 rounded-md border border-[#1F1F2E] bg-[#09090E] px-2 py-1.5 text-xs text-slate-300 focus:border-[#6366F1] focus:outline-none"
-            >
-              <option value="">All motivation</option>
-              <option value="HIGH">HIGH</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="LOW">LOW</option>
-            </select>
-
-            {activeFilterCount > 0 && (
-              <button
-                onClick={resetFilters}
-                className="rounded-md border border-[#1F1F2E] px-2 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
-              >
-                Reset
-              </button>
+        {/* SIDEBAR LIST */}
+        <div
+          className={sidebarOpen ? '' : 'hidden md:block'}
+          style={{ display: sidebarOpen ? 'block' : undefined }}
+        >
+          <div className="eyebrow" style={{ marginBottom: 12 }}>
+            Plotted entries · {sidebarItems.length} in view
+            {filteredListings.length !== initialListings.length && (
+              <> · {filteredListings.length} filtered</>
             )}
           </div>
-        </div>
 
-        {/* Listing count */}
-        <div className="px-4 py-2 text-xs text-slate-500">
-          {sidebarItems.length} listing{sidebarItems.length !== 1 ? 's' : ''} in view
-          {filteredListings.length !== initialListings.length && (
-            <span className="ml-1 text-[#6366F1]">({filteredListings.length} filtered)</span>
-          )}
-        </div>
+          <div className="atlas-list">
+            {sidebarItems.length === 0 ? (
+              <div
+                style={{
+                  padding: '40px 16px',
+                  fontFamily: 'var(--display)',
+                  fontStyle: 'italic',
+                  color: 'var(--ink-3)',
+                  textAlign: 'center',
+                }}
+              >
+                — Nothing in view —
+              </div>
+            ) : (
+              sidebarItems.map((listing, i) => (
+                <SidebarListItem
+                  key={listing.id}
+                  index={i + 1}
+                  listing={listing}
+                  onClick={() => flyToListing(listing)}
+                />
+              ))
+            )}
+          </div>
 
-        {/* Listing list */}
-        <div className="flex-1 overflow-y-auto">
-          {sidebarItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-500">
-              <span className="text-3xl">🗺️</span>
-              <p className="text-sm">No listings in view</p>
-            </div>
-          ) : (
-            sidebarItems.map((listing) => (
-              <SidebarListItem
-                key={listing.id}
-                listing={listing}
-                onClick={() => flyToListing(listing)}
-              />
-            ))
-          )}
-        </div>
-
-        {/* Legend */}
-        <div className="border-t border-[#1F1F2E] px-4 py-3">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Motivation</span>
-            <div className="flex gap-3">
-              {(['HIGH', 'MEDIUM', 'LOW'] as MotivationLabel[]).map((m) => (
-                <span key={m} className="flex items-center gap-1">
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: MOTIVATION_COLORS[m] }}
-                  />
-                  {m}
-                </span>
-              ))}
-            </div>
+          <div
+            style={{
+              marginTop: 16,
+              paddingTop: 12,
+              borderTop: '1px solid var(--rule-soft)',
+              fontFamily: 'var(--mono)',
+              fontSize: 10,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              display: 'flex',
+              gap: 14,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>Motivation:</span>
+            {(['HIGH', 'MEDIUM', 'LOW'] as MotivationLabel[]).map((m) => (
+              <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: MOTIVATION_COLORS[m],
+                    display: 'inline-block',
+                  }}
+                />
+                {m}
+              </span>
+            ))}
           </div>
         </div>
-      </aside>
-
-      {/* Map container */}
-      <div className="relative flex-1">
-        {/* Sidebar toggle (mobile + desktop collapse) */}
-        <button
-          onClick={() => setSidebarOpen((o) => !o)}
-          className="absolute left-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-lg bg-[#111118] border border-[#1F1F2E] text-slate-300 shadow-lg hover:border-[#6366F1] hover:text-[#6366F1] transition-colors md:hidden"
-          aria-label="Toggle sidebar"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
-
-        {/* No token warning */}
-        {!process.env.NEXT_PUBLIC_MAPBOX_TOKEN && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#09090E]">
-            <p className="text-sm text-slate-400">
-              Set <code className="rounded bg-[#1F1F2E] px-1 py-0.5 text-[#6366F1]">NEXT_PUBLIC_MAPBOX_TOKEN</code> to
-              enable the map.
-            </p>
-          </div>
-        )}
-
-        <div ref={mapContainer} className="absolute inset-0" />
       </div>
     </div>
   );
@@ -533,51 +565,31 @@ export default function MapView({ initialListings }: Props) {
 // ─── Sidebar list item ──────────────────────────────────────────────────────
 
 function SidebarListItem({
+  index,
   listing,
   onClick,
 }: {
+  index: number;
   listing: ComputedListing;
   onClick: () => void;
 }) {
-  const motivationColor = MOTIVATION_COLORS[listing.motivation_score];
-
   return (
-    <button
-      onClick={onClick}
-      className="w-full border-b border-[#1F1F2E] px-4 py-3 text-left transition-colors hover:bg-[#1a1a24] focus:outline-none focus:bg-[#1a1a24]"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <p className="line-clamp-2 text-xs font-medium text-slate-200 leading-tight">
-          {listing.title ?? 'Untitled'}
-        </p>
-        <span
-          className="mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-          style={{ background: `${motivationColor}22`, color: motivationColor }}
-        >
-          {listing.motivation_score}
-        </span>
+    <div className="atlas-item" onClick={onClick}>
+      <div className="num">{String(index).padStart(2, '0')}.</div>
+      <div>
+        <div className="name">{listing.title ?? 'Untitled'}</div>
+        <div className="meta">
+          {listing.area ?? '—'}
+          {listing.beds !== null ? ` · ${listing.beds}br` : ''}
+          {listing.estimated_gross_yield !== null ? ` · ${listing.estimated_gross_yield.toFixed(1)}% yield` : ''}
+        </div>
       </div>
-
-      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-400">
-        {listing.area && <span>{listing.area}</span>}
-        {listing.beds !== null && <span>· {listing.beds}br</span>}
-      </div>
-
-      <div className="mt-1 flex items-center gap-2">
-        <span className="text-xs font-semibold text-slate-200">
-          AED {(listing.price ?? 0).toLocaleString()}
-        </span>
+      <div>
+        <div className="price">{fmtAED(listing.price ?? 0)}</div>
         {listing.drop_percent !== null && listing.drop_percent > 0 && (
-          <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
-            ↓ {listing.drop_percent.toFixed(1)}%
-          </span>
-        )}
-        {listing.estimated_gross_yield !== null && listing.estimated_gross_yield > 0 && (
-          <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
-            {listing.estimated_gross_yield.toFixed(1)}%
-          </span>
+          <div className="drop">↓ {listing.drop_percent.toFixed(1)}%</div>
         )}
       </div>
-    </button>
+    </div>
   );
 }

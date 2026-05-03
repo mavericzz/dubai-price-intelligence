@@ -1,58 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ComputedListing } from '@/types';
-import { ListingCard } from '@/components/ListingCard';
-import { ListingTableRow } from '@/components/ListingTableRow';
-import { StatBar } from '@/components/StatBar';
-import type { Currency } from '@/components/PriceDisplay';
+import { Sparkline } from '@/components/Sparkline';
+import { fmtAED, classifyCut } from '@/lib/almanac';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DUBAI_AREAS = [
-  'Dubai Marina',
+const FILTER_AREAS = [
+  'All',
   'Downtown Dubai',
-  'Business Bay',
-  'Jumeirah Lake Towers',
+  'Dubai Marina',
   'Palm Jumeirah',
+  'Business Bay',
   'Dubai Hills Estate',
-  'Jumeirah Village Circle',
-  'Arabian Ranches',
   'Dubai Creek Harbour',
-  'DIFC',
-  'Al Barsha',
-  'Mirdif',
-  'Deira',
-  'Bur Dubai',
-  'Dubai Sports City',
-  'Dubai South',
-  'The Springs',
   'Emirates Hills',
-] as const;
-
-interface SortOption {
-  label: string;
-  field: string;
-  direction: 'asc' | 'desc';
-}
-
-const SORT_OPTIONS: SortOption[] = [
-  { label: 'Drop % (High → Low)', field: 'drop_percent', direction: 'desc' },
-  { label: 'Price (Low → High)', field: 'price', direction: 'asc' },
-  { label: 'Price (High → Low)', field: 'price', direction: 'desc' },
-  { label: 'Days on Market', field: 'days_on_market', direction: 'desc' },
-  { label: 'Yield (High → Low)', field: 'yield', direction: 'desc' },
 ];
 
-const CURRENCIES: Currency[] = ['AED', 'USD', 'EUR'];
 const PAGE_SIZE = 20;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 interface Stats {
   activeDrops: number;
@@ -60,52 +25,35 @@ interface Stats {
   topAreaByDrops: string;
 }
 
-// ---------------------------------------------------------------------------
-// Shared select / input styles
-// ---------------------------------------------------------------------------
-
-const selectCls =
-  'rounded-lg border border-[#1F1F2E] bg-[#111118] px-3 py-2 text-sm text-slate-200 ' +
-  'focus:outline-none focus:ring-1 focus:ring-[#6366F1] focus:border-[#6366F1] transition-colors';
-
-const inputCls =
-  'w-28 rounded-lg border border-[#1F1F2E] bg-[#111118] px-3 py-2 text-sm text-slate-200 ' +
-  'placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-[#6366F1] ' +
-  'focus:border-[#6366F1] transition-colors [appearance:textfield] ' +
-  '[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none';
-
-// ---------------------------------------------------------------------------
-// Page component
-// ---------------------------------------------------------------------------
+function todayUpper(): string {
+  return new Date()
+    .toLocaleDateString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+    .toUpperCase();
+}
 
 export default function FeedClient() {
   const router = useRouter();
-
-  // --- Filter state ---
+  const [filter, setFilter] = useState('All');
   const [propertyType, setPropertyType] = useState('');
-  const [area, setArea] = useState('');
-  const [beds, setBeds] = useState('');
+  const [minDrop, setMinDrop] = useState('');
   const [minDropInput, setMinDropInput] = useState('');
-  const [minYieldInput, setMinYieldInput] = useState('');
-  const [minDrop, setMinDrop] = useState(''); // debounced
-  const [minYield, setMinYield] = useState(''); // debounced
-  const [motivation, setMotivation] = useState('');
-  const [sortIndex, setSortIndex] = useState(0);
-  const [currency, setCurrency] = useState<Currency>('AED');
 
-  // --- Data state ---
   const [listings, setListings] = useState<ComputedListing[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [today, setToday] = useState('');
 
-  // ---------------------------------------------------------------------------
-  // Debounce number inputs
-  // ---------------------------------------------------------------------------
+  useEffect(() => setToday(todayUpper()), []);
 
   useEffect(() => {
     const t = setTimeout(() => setMinDrop(minDropInput), 500);
@@ -113,344 +61,365 @@ export default function FeedClient() {
   }, [minDropInput]);
 
   useEffect(() => {
-    const t = setTimeout(() => setMinYield(minYieldInput), 500);
-    return () => clearTimeout(t);
-  }, [minYieldInput]);
-
-  // ---------------------------------------------------------------------------
-  // Stats (once on mount)
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
     fetch('/api/stats')
-      .then((r) => r.json())
-      .then((d: Stats) => setStats(d))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStats(d))
       .catch(() => {});
   }, []);
-
-  // ---------------------------------------------------------------------------
-  // Core fetch function
-  // ---------------------------------------------------------------------------
 
   const fetchPage = useCallback(
     async (pageNum: number, append: boolean) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      setLoading(true);
 
-      setIsLoading(true);
-
-      const sort = SORT_OPTIONS[sortIndex];
       const params = new URLSearchParams();
       if (propertyType) params.set('property_type', propertyType);
-      if (area) params.set('area', area);
-      if (beds !== '') params.set('beds', beds);
+      if (filter !== 'All') params.set('area', filter);
       if (minDrop) params.set('min_drop_percent', minDrop);
-      if (minYield) params.set('min_yield', minYield);
-      if (motivation) params.set('motivation', motivation);
-      params.set('sort_field', sort.field);
-      params.set('sort_direction', sort.direction);
+      params.set('sort_field', 'drop_percent');
+      params.set('sort_direction', 'desc');
       params.set('page', String(pageNum));
       params.set('limit', String(PAGE_SIZE));
 
       try {
         const res = await fetch(`/api/listings?${params}`, { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error('http');
         const data = await res.json();
-        const newListings: ComputedListing[] = data.listings ?? [];
-
-        setListings((prev) => (append ? [...prev, ...newListings] : newListings));
-        setHasMore(newListings.length === PAGE_SIZE);
-        setCurrentPage(pageNum);
-      } catch (err) {
-        if ((err as Error).name !== 'AbortError') console.error('[feed] fetch error:', err);
+        const fresh: ComputedListing[] = data.listings ?? [];
+        setListings((prev) => (append ? [...prev, ...fresh] : fresh));
+        setHasMore(fresh.length === PAGE_SIZE);
+        setPage(pageNum);
+      } catch (e) {
+        if ((e as Error).name !== 'AbortError') console.error('[front-page] fetch:', e);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [propertyType, area, beds, minDrop, minYield, motivation, sortIndex],
+    [filter, propertyType, minDrop],
   );
-
-  // ---------------------------------------------------------------------------
-  // Reset + fetch when filters / sort change
-  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     fetchPage(1, false);
   }, [fetchPage]);
 
-  // ---------------------------------------------------------------------------
-  // Infinite scroll
-  // ---------------------------------------------------------------------------
-
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && hasMore && !isLoading) {
-          fetchPage(currentPage + 1, true);
-        }
+        if (entry.isIntersecting && hasMore && !loading) fetchPage(page + 1, true);
       },
-      { rootMargin: '200px', threshold: 0 },
+      { rootMargin: '300px' },
     );
-
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, isLoading, currentPage, fetchPage]);
+  }, [hasMore, loading, page, fetchPage]);
 
-  // ---------------------------------------------------------------------------
-  // Derived
-  // ---------------------------------------------------------------------------
+  const ledeProperty = useMemo(
+    () => listings.find((l) => Math.abs(l.drop_percent ?? 0) >= 17) ?? listings[0] ?? null,
+    [listings],
+  );
+  const todaysMarks = listings.slice(0, 5);
+  const tableRows = listings.slice(0, 12);
 
-  const statItems = stats
-    ? [
-        { label: 'Active Drops', value: stats.activeDrops.toLocaleString(), highlight: true },
-        { label: 'Avg Drop %', value: `${stats.avgDropPercent.toFixed(1)}%` },
-        { label: 'Top Area by Drops', value: stats.topAreaByDrops },
-      ]
-    : [
-        { label: 'Active Drops', value: '—' },
-        { label: 'Avg Drop %', value: '—' },
-        { label: 'Top Area by Drops', value: '—' },
-      ];
-
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const areaIndex = useMemo(() => {
+    const map = new Map<string, { count: number; sum: number }>();
+    listings.forEach((l) => {
+      if (!l.area) return;
+      const cur = map.get(l.area) ?? { count: 0, sum: 0 };
+      cur.count += 1;
+      cur.sum += l.drop_percent ?? 0;
+      map.set(l.area, cur);
+    });
+    return Array.from(map.entries())
+      .map(([name, v]) => ({ name, count: v.count, drop: v.sum / v.count }))
+      .sort((a, b) => a.drop - b.drop)
+      .slice(0, 6);
+  }, [listings]);
 
   return (
-    <div className="min-h-screen bg-[#09090E]">
-      {/* ------------------------------------------------------------------ */}
-      {/* Sticky filter bar                                                    */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="sticky top-[53px] z-20 border-b border-[#1F1F2E] bg-[#09090E]/95 backdrop-blur-sm">
-        <div className="mx-auto max-w-7xl px-4 py-3">
-          <div className="flex flex-wrap items-end gap-2">
-            {/* Property type */}
-            <select
-              value={propertyType}
-              onChange={(e) => setPropertyType(e.target.value)}
-              className={selectCls}
-              aria-label="Property type"
-            >
-              <option value="">All Types</option>
-              <option value="Apartment">Apartment</option>
-              <option value="Villa">Villa</option>
-              <option value="Townhouse">Townhouse</option>
-              <option value="Penthouse">Penthouse</option>
-            </select>
+    <div className="almanac-page">
+      {/* FRONT PAGE */}
+      <section className="front">
+        <article className="lede">
+          <div className="lede-eyebrow">Front Page · Capitulation Watch</div>
+          <h2>
+            The <em>quiet correction</em> on the {ledeProperty?.area ?? 'Marina'}
+          </h2>
+          <p className="lede-deck">
+            {ledeProperty
+              ? `${ledeProperty.title ?? ledeProperty.area ?? 'A property'} has been re-priced ${ledeProperty.drop_count} time${ledeProperty.drop_count === 1 ? '' : 's'} — bringing the headline cut to ${Math.abs(ledeProperty.drop_percent ?? 0).toFixed(1)} per cent below initial ask.`
+              : 'A quiet, daily register of price corrections in Dubai property — filed before the noise of the market opens, read by those who prefer signal to alarm.'}
+          </p>
+          <div className="lede-byline">FILED · {today} · DXB CORRESPONDENT</div>
 
-            {/* Area */}
-            <select
-              value={area}
-              onChange={(e) => setArea(e.target.value)}
-              className={selectCls}
-              aria-label="Area"
-            >
-              <option value="">All Areas</option>
-              {DUBAI_AREAS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-
-            {/* Beds */}
-            <select
-              value={beds}
-              onChange={(e) => setBeds(e.target.value)}
-              className={selectCls}
-              aria-label="Bedrooms"
-            >
-              <option value="">Any Beds</option>
-              <option value="0">Studio</option>
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5+</option>
-            </select>
-
-            {/* Min drop % */}
-            <input
-              type="number"
-              placeholder="Min Drop %"
-              value={minDropInput}
-              onChange={(e) => setMinDropInput(e.target.value)}
-              min={0}
-              max={100}
-              step={1}
-              className={inputCls}
-              aria-label="Minimum drop percent"
-            />
-
-            {/* Min yield % */}
-            <input
-              type="number"
-              placeholder="Min Yield %"
-              value={minYieldInput}
-              onChange={(e) => setMinYieldInput(e.target.value)}
-              min={0}
-              max={30}
-              step={0.1}
-              className={inputCls}
-              aria-label="Minimum yield percent"
-            />
-
-            {/* Motivation */}
-            <select
-              value={motivation}
-              onChange={(e) => setMotivation(e.target.value)}
-              className={selectCls}
-              aria-label="Motivation"
-            >
-              <option value="">All Motivation</option>
-              <option value="HIGH">HIGH</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="LOW">LOW</option>
-            </select>
-
-            {/* Sort by */}
-            <select
-              value={sortIndex}
-              onChange={(e) => setSortIndex(Number(e.target.value))}
-              className={selectCls}
-              aria-label="Sort by"
-            >
-              {SORT_OPTIONS.map((opt, i) => (
-                <option key={i} value={i}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-
-            {/* Currency toggle */}
-            <div
-              className="flex overflow-hidden rounded-lg border border-[#1F1F2E]"
-              role="group"
-              aria-label="Currency"
-            >
-              {CURRENCIES.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setCurrency(c)}
-                  className={`px-3 py-2 text-sm font-medium transition-colors ${
-                    currency === c
-                      ? 'bg-[#6366F1] text-white'
-                      : 'bg-[#111118] text-slate-400 hover:text-slate-200'
-                  }`}
-                  aria-pressed={currency === c}
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
+          <div className="lede-art">
+            <div className="ph ph-cool"></div>
+            <div className="gallery-cap">View toward the Marina · 06:42 GST</div>
           </div>
-        </div>
-      </div>
+          <div className="lede-art-cap">
+            {ledeProperty?.title ?? 'The Marina'}, photographed on the morning of the latest reduction.
+          </div>
+        </article>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Main content                                                         */}
-      {/* ------------------------------------------------------------------ */}
-      <div className="mx-auto max-w-7xl space-y-4 px-4 py-6">
-        {/* StatBar */}
-        <StatBar stats={statItems} />
+        <div className="col-divider"></div>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Desktop table (md+)                                               */}
-        {/* ---------------------------------------------------------------- */}
-        <div className="hidden md:block">
-          <div className="overflow-x-auto rounded-xl border border-[#1F1F2E]">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-[#1F1F2E] bg-[#111118]">
-                  {[
-                    'Property',
-                    'Price',
-                    'Drop %',
-                    'Motivation',
-                    'Yield',
-                    'Beds / Bath',
-                    'Size',
-                    'Days on Mkt',
-                  ].map((col) => (
-                    <th
-                      key={col}
-                      className={`py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 ${
-                        col === 'Property' ? 'pl-4 pr-3' : col === 'Days on Mkt' ? 'px-3 pr-4' : 'px-3'
-                      }`}
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-[#09090E]">
-                {listings.map((listing) => (
-                  <ListingTableRow
-                    key={listing.id}
-                    listing={listing}
-                    currency={currency}
-                    onClick={() => router.push(`/listing/${listing.id}`)}
-                  />
-                ))}
-              </tbody>
-            </table>
-
-            {/* Empty state inside table wrapper */}
-            {!isLoading && listings.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-1 py-20 text-center">
-                <p className="text-slate-400">No listings match your filters</p>
-                <p className="text-sm text-slate-600">Try broadening your search criteria</p>
+        <div>
+          <div className="col-section">
+            <div className="col-head">Today&rsquo;s Marks</div>
+            {todaysMarks.length === 0 && (
+              <div style={{ fontFamily: 'var(--display)', fontStyle: 'italic', color: 'var(--ink-3)', padding: '12px 0' }}>
+                No marks filed yet.
               </div>
             )}
+            {todaysMarks.map((p) => (
+              <div
+                className="col-item"
+                key={p.id}
+                onClick={() => router.push(`/listing/${p.id}`)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="col-item-row">
+                  <div className="col-item-title">{p.title ?? p.area}</div>
+                  <div className="col-item-pct">{(p.drop_percent ?? 0).toFixed(1)}%</div>
+                </div>
+                <div className="col-item-meta">
+                  {p.area} · {p.beds ?? '—'}br · cut №{p.drop_count}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Mobile card grid (<md)                                            */}
-        {/* ---------------------------------------------------------------- */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:hidden">
-          {listings.map((listing) => (
-            <ListingCard
-              key={listing.id}
-              listing={listing}
-              currency={currency}
-              onClick={() => router.push(`/listing/${listing.id}`)}
-            />
-          ))}
+        <div className="col-divider"></div>
 
-          {/* Empty state */}
-          {!isLoading && listings.length === 0 && (
-            <div className="col-span-full flex flex-col items-center justify-center gap-1 py-20 text-center">
-              <p className="text-slate-400">No listings match your filters</p>
-              <p className="text-sm text-slate-600">Try broadening your search criteria</p>
+        <div>
+          <div className="col-section">
+            <div className="col-head">Areas · index</div>
+            {areaIndex.map((a) => (
+              <div className="col-item" key={a.name}>
+                <div className="col-item-row">
+                  <div className="col-item-title" style={{ fontSize: 16 }}>
+                    {a.name}
+                  </div>
+                  <div className="col-item-pct">{a.drop.toFixed(1)}%</div>
+                </div>
+                <div className="col-item-meta">{a.count} listings tracked</div>
+              </div>
+            ))}
+          </div>
+          <div className="col-section">
+            <div className="col-head">Almanac</div>
+            <div
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 12,
+                letterSpacing: '0.04em',
+                color: 'var(--ink-2)',
+                lineHeight: 1.9,
+                textTransform: 'uppercase',
+              }}
+            >
+              Listings tracked · {stats ? stats.activeDrops.toLocaleString() : '—'}<br />
+              Avg. cut · {stats ? `${stats.avgDropPercent.toFixed(1)}%` : '—'}<br />
+              Top area · {stats?.topAreaByDrops ?? '—'}<br />
+              Median cut watch · daily<br />
+              Filed daily, save Fridays
             </div>
-          )}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION HEAD */}
+      <div className="section-bar">
+        <h3>
+          The <em>Register</em> of cuts
+        </h3>
+        <div className="section-bar-meta">
+          {listings.length} entries · sorted by depth of cut<br />
+          Filed {today.split(' ').slice(0, 4).join(' ')}
+        </div>
+      </div>
+
+      {/* FILTERS */}
+      <div className="filter-bar">
+        <div className="filter-group">
+          <span className="filter-label">Area</span>
+          <div className="filter-options">
+            {FILTER_AREAS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                className={'filter-opt' + (filter === a ? ' active' : '')}
+                onClick={() => setFilter(a)}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Type</span>
+          <select
+            className="filter-select"
+            value={propertyType}
+            onChange={(e) => setPropertyType(e.target.value)}
+          >
+            <option value="">Any</option>
+            <option value="Apartment">Apartment</option>
+            <option value="Villa">Villa</option>
+            <option value="Townhouse">Townhouse</option>
+            <option value="Penthouse">Penthouse</option>
+          </select>
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Min cut %</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="0"
+            value={minDropInput}
+            onChange={(e) => setMinDropInput(e.target.value)}
+            className="filter-input"
+            min={0}
+            max={100}
+            step={1}
+          />
+        </div>
+        <div className="filter-group">
+          <span className="filter-label">Sort</span>
+          <span className="filter-opt active">Depth of cut</span>
+        </div>
+      </div>
+
+      {/* REGISTER */}
+      <div className="register">
+        <div className="register-head">
+          <span>№</span>
+          <span>Address</span>
+          <span>Configuration</span>
+          <span>Listed</span>
+          <span>Movement</span>
+          <span>Current ask</span>
+          <span style={{ textAlign: 'right' }}>Cut</span>
         </div>
 
-        {/* ---------------------------------------------------------------- */}
-        {/* Loading spinner                                                   */}
-        {/* ---------------------------------------------------------------- */}
-        {isLoading && (
-          <div className="flex justify-center py-8" aria-label="Loading listings">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1F1F2E] border-t-[#6366F1]" />
+        {tableRows.map((p, i) => {
+          const c = classifyCut(p.drop_percent, p.drop_count);
+          const dropPct = (p.drop_percent ?? 0).toFixed(1);
+          const peakPrice = p.peak_price ?? p.price ?? 0;
+          const currentPrice = p.price ?? 0;
+          const history = p.peak_price && p.price && p.peak_price !== p.price
+            ? [p.peak_price, p.peak_price * 0.97, p.peak_price * 0.94, p.price]
+            : [currentPrice, currentPrice];
+
+          return (
+            <div
+              className="register-row"
+              key={p.id}
+              onClick={() => router.push(`/listing/${p.id}`)}
+            >
+              <div className="reg-num">{String(i + 1).padStart(2, '0')}.</div>
+              <div>
+                <div className="reg-name">{p.title ?? p.area ?? 'Untitled listing'}</div>
+                <div className="reg-name-sub">
+                  {[p.area, p.sub_area].filter(Boolean).join(', ') || '—'}
+                </div>
+                <span className={'classif ' + c.cls}>{c.label}</span>
+              </div>
+              <div className="reg-cell">
+                <strong>{p.property_type ?? 'Property'}</strong>
+                {p.beds !== null ? `, ${p.beds}br` : ''}
+                <span className="reg-cell-sub">
+                  {p.size_sqft ? `${p.size_sqft.toLocaleString()} sqft` : ''}
+                  {p.size_sqft && p.baths ? ' · ' : ''}
+                  {p.baths !== null ? `${p.baths} bath` : ''}
+                </span>
+              </div>
+              <div className="reg-cell">
+                <strong>{p.days_on_market ?? '—'} days</strong>
+                <span className="reg-cell-sub">
+                  {p.drop_count} reduction{p.drop_count === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="reg-spark">
+                <Sparkline data={history} width={120} height={26} />
+                <div
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 10,
+                    color: 'var(--ink-3)',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Peak → Today
+                </div>
+              </div>
+              <div>
+                <div className="reg-price">{fmtAED(currentPrice)}</div>
+                {peakPrice > currentPrice && (
+                  <div className="reg-price-was">was {fmtAED(peakPrice)}</div>
+                )}
+              </div>
+              <div>
+                <div className="reg-drop">{dropPct}%</div>
+                <div className="reg-drop-sub">{p.motivation_score} motivation</div>
+              </div>
+            </div>
+          );
+        })}
+
+        {!loading && listings.length === 0 && (
+          <div
+            style={{
+              padding: '60px 20px',
+              textAlign: 'center',
+              fontFamily: 'var(--display)',
+              fontStyle: 'italic',
+              color: 'var(--ink-3)',
+              fontSize: 22,
+            }}
+          >
+            — Nothing filed under these particulars —
           </div>
         )}
-
-        {/* End-of-list message */}
-        {!hasMore && listings.length > 0 && (
-          <p className="py-4 text-center text-xs text-slate-600">
-            {listings.length} listing{listings.length !== 1 ? 's' : ''} shown
-          </p>
-        )}
-
-        {/* Infinite scroll sentinel */}
-        <div ref={sentinelRef} className="h-1" aria-hidden="true" />
       </div>
+
+      {loading && (
+        <div
+          style={{
+            padding: '24px 0',
+            textAlign: 'center',
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            letterSpacing: '0.14em',
+            color: 'var(--ink-3)',
+            textTransform: 'uppercase',
+          }}
+        >
+          — Compiling further entries —
+        </div>
+      )}
+
+      {!loading && hasMore && listings.length > 0 && (
+        <div
+          style={{
+            padding: '24px 0',
+            textAlign: 'center',
+            fontFamily: 'var(--display)',
+            fontStyle: 'italic',
+            fontSize: 18,
+            color: 'var(--ink-3)',
+          }}
+        >
+          Continue to page two — further entries below →
+        </div>
+      )}
+
+      <div ref={sentinelRef} className="h-1" aria-hidden="true" />
     </div>
   );
 }

@@ -11,20 +11,9 @@ import {
   getYieldTrend,
   getSimilarDrops,
 } from '@/lib/queries';
-import {
-  DropBadge,
-  MotivationBadge,
-  PriceDisplay,
-  ContactAgentButton,
-  ListingCard,
-} from '@/components';
 import type { DLDTransaction } from '@/types';
 import { PriceHistoryChart } from './PriceHistoryChart';
-import { YieldTrendChart } from './YieldTrendChart';
-
-// ---------------------------------------------------------------------------
-// Metadata
-// ---------------------------------------------------------------------------
+import { fmtAED, fmtFull, classifyCut, patternFor } from '@/lib/almanac';
 
 export async function generateMetadata({
   params,
@@ -33,23 +22,14 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   try {
     const listing = await getListingById(params.id);
-    if (!listing) return { title: 'Listing not found' };
+    if (!listing) return { title: 'Dossier not found · The DXB Almanac' };
     return {
-      title: listing.title ?? `Listing in ${listing.area ?? 'Dubai'}`,
-      description: `Price: AED ${listing.price?.toLocaleString()} · ${listing.area}`,
+      title: `${listing.title ?? listing.area ?? 'Dossier'} · The DXB Almanac`,
+      description: `Asking ${listing.price ? `AED ${listing.price.toLocaleString()}` : '—'} · ${listing.area ?? 'Dubai'}`,
     };
   } catch {
-    return { title: 'Listing not found' };
+    return { title: 'Dossier not found · The DXB Almanac' };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fmt(n: number | null, suffix = '') {
-  if (n === null) return '—';
-  return `${n.toLocaleString('en-US')}${suffix}`;
 }
 
 function medianPsf(txns: DLDTransaction[]): number | null {
@@ -69,45 +49,55 @@ function medianPsf(txns: DLDTransaction[]): number | null {
   return psfs.length % 2 === 0 ? (psfs[mid - 1] + psfs[mid]) / 2 : psfs[mid];
 }
 
-function buildMotivationNarrative(
-  dropPercent: number | null,
-  dropCount: number,
-  dropVelocity: number | null,
-  daysOnMarket: number | null,
-): string {
-  const parts: string[] = [];
-
-  if (dropCount > 0) {
-    const avgDrop = dropPercent !== null ? ` averaging ${(dropPercent / dropCount).toFixed(1)}% per drop` : '';
-    parts.push(`This seller has dropped the price ${dropCount} time${dropCount > 1 ? 's' : ''}${avgDrop}.`);
-  }
-
-  if (daysOnMarket !== null) {
-    parts.push(`The listing has been on the market for ${daysOnMarket} days.`);
-  }
-
-  if (dropVelocity !== null && dropVelocity > 0) {
-    const rate = (dropVelocity * 30).toFixed(1);
-    parts.push(`Drop velocity is ${rate} drops per month.`);
-  }
-
-  if (parts.length === 0) return 'Insufficient price history to assess motivation.';
-
-  const dom = daysOnMarket ?? 0;
-  if ((dropPercent ?? 0) > 10 || dom > 180 || (dropVelocity ?? 0) > 0.5) {
-    parts.push('Combined signals suggest high motivation to sell.');
-  } else if (dropCount === 0 && dom < 30) {
-    parts.push('Early on market with no drops — seller may not be motivated yet.');
-  } else {
-    parts.push('Moderate seller motivation.');
-  }
-
-  return parts.join(' ');
+function shortDate(): string {
+  return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
+function buildEssay(p: {
+  title: string | null;
+  area: string | null;
+  beds: number | null;
+  baths: number | null;
+  property_type: string | null;
+  price: number | null;
+  peak_price: number | null;
+  drop_percent: number | null;
+  drop_count: number;
+  days_on_market: number | null;
+  agent_name: string | null;
+  listing_psf: number | null;
+}): string[] {
+  const months = p.days_on_market ? Math.max(1, Math.round(p.days_on_market / 30)) : null;
+  const cut = Math.abs(p.drop_percent ?? 0);
+  const intro = `${p.title ?? 'This entry'} first arrived on the listing sheets ${
+    p.agent_name ? `of ${p.agent_name}` : ''
+  } at a confident ${fmtFull(p.peak_price)} — a figure consistent with the bull tone that prevailed across ${
+    p.area ?? 'the area'
+  } through the back half of last year. ${
+    months ? `${months} month${months === 1 ? '' : 's'} and ` : ''
+  }${p.drop_count} ${p.drop_count === 1 ? 'silent revision' : 'silent revisions'} later, the asking has settled at ${fmtFull(
+    p.price,
+  )}, a level that places it firmly in the bottom quartile of comparable ${
+    p.beds !== null ? `${p.beds}-bedroom` : ''
+  } stock in the area.`;
+
+  const middle =
+    p.drop_count >= 3
+      ? `The pattern is the giveaway. ${p.drop_count} cuts ${months ? `in ${months} months` : ''} is not a negotiation; it is, in the parlance of this almanac, a *capitulation*. The seller has stopped guessing what the property is worth and started asking the market what it will pay. That is the moment, our correspondent observes, when the buyer's leverage is highest and the broker's voice softest.`
+      : p.drop_count > 0
+      ? `The first reduction is rarely the last. At ${cut.toFixed(1)} per cent below the original ask, this entry has crossed the threshold at which most listings begin a measured descent — the point where the seller's patience and the broker's diary diverge.`
+      : `No cuts have been filed yet, but the long days on market suggest the next mark is not far off. Patience, on either side of this transaction, is the relevant currency.`;
+
+  const close = p.listing_psf
+    ? `Comparable stock in ${p.area ?? 'the area'} currently transacts at roughly AED ${Math.round(
+        p.listing_psf * 1.08,
+      ).toLocaleString()} per square foot. This entry sits at AED ${Math.round(
+        p.listing_psf,
+      ).toLocaleString()}. The chart below traces the descent.`
+    : `The chart below traces the descent of the asking-price line over the period this almanac has had the property under watch.`;
+
+  return [intro, middle, close];
+}
 
 export default async function ListingDetailPage({
   params,
@@ -132,12 +122,30 @@ export default async function ListingDetailPage({
   ]);
 
   const medPsf = medianPsf(comps);
-  const narrative = buildMotivationNarrative(
-    listing.drop_percent,
-    listing.drop_count,
-    listing.drop_velocity,
-    listing.days_on_market,
-  );
+  const c = classifyCut(listing.drop_percent, listing.drop_count);
+  const dossierNum = parseInt(listing.id.replace(/\D/g, '').slice(0, 6) || '1', 10) % 999;
+  const cut = Math.abs(listing.drop_percent ?? 0);
+
+  const titleParts = (listing.title ?? listing.area ?? 'Dossier').split(' ');
+  const titleHead = titleParts.slice(0, -1).join(' ') || titleParts[0];
+  const titleTail = titleParts.length > 1 ? titleParts[titleParts.length - 1] : '';
+
+  const essay = buildEssay({
+    title: listing.title,
+    area: listing.area,
+    beds: listing.beds,
+    baths: listing.baths,
+    property_type: listing.property_type,
+    price: listing.price,
+    peak_price: listing.peak_price,
+    drop_percent: listing.drop_percent,
+    drop_count: listing.drop_count,
+    days_on_market: listing.days_on_market,
+    agent_name: listing.agent_name,
+    listing_psf: listing.listing_psf,
+  });
+
+  const pattern = patternFor(listing.area);
 
   const areaAvgYield =
     yieldTrend.length > 0
@@ -145,172 +153,170 @@ export default async function ListingDetailPage({
       : null;
 
   return (
-    <main className="min-h-screen bg-[#09090E] px-4 pb-16 pt-6 text-slate-100 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl space-y-10">
+    <main className="almanac-page">
+      <Link href="/" className="dossier-back">
+        ← Return to the Register
+      </Link>
 
-        {/* ── 1. Hero ───────────────────────────────────────────────────── */}
-        <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] overflow-hidden">
-          {/* Image */}
-          <div className="relative aspect-[21/9] w-full bg-[#09090E]">
+      <div className="dossier-head">
+        <div>
+          <div className="dossier-eyebrow">
+            <span>Dossier №{String(dossierNum).padStart(3, '0')}</span>
+            <span>·</span>
+            <span>{listing.area ?? 'Dubai'}</span>
+            <span>·</span>
+            <span style={{ color: 'var(--red)' }}>{c.label}</span>
+          </div>
+          <h1 className="dossier-title">
+            {titleHead} {titleTail && <em>{titleTail}</em>}
+          </h1>
+          <p className="dossier-deck">
+            A {listing.beds !== null ? `${listing.beds}-bedroom ` : ''}
+            {(listing.property_type ?? 'property').toLowerCase()}
+            {listing.sub_area ? ` on ${listing.sub_area}` : ''}, marked down {listing.drop_count}{' '}
+            {listing.drop_count === 1 ? 'time' : 'times'} since first watch — now offered{' '}
+            {cut.toFixed(1)} percent below initial ask.
+          </p>
+        </div>
+        <div className="dossier-num">{String(dossierNum).padStart(3, '0')}</div>
+      </div>
+
+      <div className="dossier-body">
+        {/* MAIN COLUMN */}
+        <div>
+          <div className="essay dropcap">
+            {essay.map((para, i) => (
+              <p key={i}>
+                {para.split('*').map((seg, j) =>
+                  j % 2 === 1 ? <em key={j}>{seg}</em> : <span key={j}>{seg}</span>,
+                )}
+              </p>
+            ))}
+          </div>
+
+          <PriceHistoryChart history={priceHistory} peakPrice={listing.peak_price} />
+
+          <div className="gallery">
             {listing.image_url ? (
-              <Image
-                src={listing.image_url}
-                alt={listing.title ?? 'Property image'}
-                fill
-                priority
-                className="object-cover"
-                sizes="(max-width: 1024px) 100vw, 1024px"
-              />
+              <div style={{ position: 'relative' }}>
+                <Image
+                  src={listing.image_url}
+                  alt={listing.title ?? 'Property image'}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 1024px) 100vw, 600px"
+                />
+                <div className="gallery-cap">{listing.area ?? 'Reception'}</div>
+              </div>
             ) : (
-              <div className="flex h-full items-center justify-center text-slate-700">
-                <svg viewBox="0 0 24 24" fill="currentColor" className="h-16 w-16" aria-hidden="true">
-                  <path d="M3 9.5L12 3l9 6.5V21H3V9.5z" />
-                </svg>
+              <div>
+                <div className={`ph ph-${pattern}`}></div>
+                <div className="gallery-cap">Reception</div>
               </div>
             )}
+            <div>
+              <div className={`ph ph-${pattern}`}></div>
+              <div className="gallery-cap">Kitchen</div>
+            </div>
+            <div>
+              <div className={`ph ph-${pattern}`}></div>
+              <div className="gallery-cap">Aspect</div>
+            </div>
+            <div>
+              <div className={`ph ph-${pattern}`}></div>
+              <div className="gallery-cap">Principal bedroom</div>
+            </div>
+            <div>
+              <div className={`ph ph-${pattern}`}></div>
+              <div className="gallery-cap">Terrace</div>
+            </div>
           </div>
 
-          <div className="p-6 space-y-4">
-            {/* Badges */}
-            <div className="flex flex-wrap items-center gap-2">
-              <DropBadge dropPercent={listing.drop_percent} />
-              <MotivationBadge motivation={listing.motivation_score} />
-              {listing.is_off_plan && (
-                <span className="inline-flex items-center rounded-full bg-indigo-900/60 px-2 py-0.5 text-xs font-medium text-indigo-300">
-                  Off-Plan
+          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 24, marginTop: 8 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>
+              The Particulars
+            </div>
+            <div className="facts">
+              <div className="fact">
+                <span className="fact-label">Type</span>
+                <span className="fact-val">{listing.property_type ?? '—'}</span>
+              </div>
+              <div className="fact">
+                <span className="fact-label">Built-up area</span>
+                <span className="fact-val">
+                  {listing.size_sqft ? listing.size_sqft.toLocaleString() : '—'}{' '}
+                  <span style={{ fontSize: 13, color: 'var(--ink-3)', fontFamily: 'var(--mono)' }}>sqft</span>
                 </span>
-              )}
-            </div>
-
-            {/* Title */}
-            {listing.title && (
-              <h1 className="text-2xl font-bold text-slate-100 leading-snug">{listing.title}</h1>
-            )}
-
-            {/* Price */}
-            <div className="flex flex-wrap items-end gap-3">
-              <PriceDisplay price={listing.price} className="text-3xl" />
-              {listing.peak_price !== null && listing.drop_amount_aed !== null && listing.drop_amount_aed > 0 && (
-                <span className="text-sm text-slate-500 line-through">
-                  AED {listing.peak_price.toLocaleString()}
+              </div>
+              <div className="fact">
+                <span className="fact-label">Bedrooms / Baths</span>
+                <span className="fact-val">
+                  {listing.beds ?? '—'} / {listing.baths ?? '—'}
                 </span>
-              )}
+              </div>
+              <div className="fact">
+                <span className="fact-label">Area</span>
+                <span className="fact-val" style={{ fontSize: 18 }}>
+                  {listing.area ?? '—'}
+                </span>
+              </div>
+              <div className="fact">
+                <span className="fact-label">Price / sqft</span>
+                <span className="fact-val">
+                  {listing.listing_psf ? `AED ${Math.round(listing.listing_psf).toLocaleString()}` : '—'}
+                </span>
+              </div>
+              <div className="fact">
+                <span className="fact-label">Days on market</span>
+                <span className="fact-val">{listing.days_on_market ?? '—'}</span>
+              </div>
+              <div className="fact">
+                <span className="fact-label">Reductions filed</span>
+                <span className="fact-val">{listing.drop_count}</span>
+              </div>
+              <div className="fact">
+                <span className="fact-label">Listed by</span>
+                <span className="fact-val" style={{ fontSize: 16, fontStyle: 'italic' }}>
+                  {listing.agent_name ?? '—'}
+                </span>
+              </div>
             </div>
+          </div>
 
-            {/* Property details grid */}
-            <div className="flex flex-wrap gap-4 text-sm">
-              {listing.beds !== null && (
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <BedIcon />
-                  <span>{listing.beds} bed{listing.beds !== 1 ? 's' : ''}</span>
-                </div>
-              )}
-              {listing.baths !== null && (
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <BathIcon />
-                  <span>{listing.baths} bath{listing.baths !== 1 ? 's' : ''}</span>
-                </div>
-              )}
-              {listing.size_sqft !== null && (
-                <div className="flex items-center gap-1.5 text-slate-300">
-                  <SqftIcon />
-                  <span>{listing.size_sqft.toLocaleString()} sqft</span>
-                </div>
-              )}
-              {listing.area && (
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <PinIcon />
-                  <span>{listing.area}{listing.sub_area ? `, ${listing.sub_area}` : ''}</span>
-                </div>
-              )}
-              {listing.days_on_market !== null && (
-                <div className="flex items-center gap-1.5 text-slate-400">
-                  <CalendarIcon />
-                  <span>{listing.days_on_market} days on market</span>
-                </div>
-              )}
-            </div>
-
-            {/* CTAs */}
-            <div className="flex flex-wrap gap-3 pt-2">
-              <ContactAgentButton
-                listingTitle={listing.title}
-                listingUrl={listing.listing_url}
-              />
-              {listing.listing_url && (
-                <a
-                  href={listing.listing_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#1F1F2E] bg-[#09090E] px-4 py-2 text-sm font-medium text-slate-300 hover:border-[#6366F1]/50 hover:text-white transition-colors"
-                >
-                  View Original Listing ↗
-                </a>
-              )}
-              <button
-                className="inline-flex items-center gap-2 rounded-lg border border-[#1F1F2E] bg-[#09090E] px-4 py-2 text-sm font-medium text-slate-300 hover:border-[#6366F1]/50 hover:text-white transition-colors"
-                aria-label="Save to watchlist"
+          {medPsf !== null && comps.length > 0 && (
+            <div style={{ marginTop: 32 }}>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>
+                Comparable Transactions · DLD register
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--display)',
+                  fontStyle: 'italic',
+                  fontSize: 22,
+                  marginBottom: 14,
+                }}
               >
-                <BookmarkIcon />
-                Save to Watchlist
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 2. Price History chart ────────────────────────────────────── */}
-        <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] p-6">
-          <h2 className="mb-4 text-lg font-semibold text-slate-100">Price History</h2>
-          <PriceHistoryChart history={priceHistory} peakPrice={listing.peak_price} />
-          {priceHistory.length > 0 && (
-            <p className="mt-2 text-xs text-slate-500">
-              {priceHistory.length} data point{priceHistory.length !== 1 ? 's' : ''} ·
-              Purple dashed line = peak price · Red dots = price drops
-            </p>
-          )}
-        </section>
-
-        {/* ── 3. DLD Comps table ───────────────────────────────────────── */}
-        <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] p-6">
-          <h2 className="mb-4 text-lg font-semibold text-slate-100">DLD Comparable Transactions</h2>
-
-          {/* Median PSF callout */}
-          {medPsf !== null && (
-            <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-[#1F1F2E] bg-[#09090E] px-4 py-2">
-              <span className="text-xs text-slate-500">Median PSF</span>
-              <span className="tabular-nums text-lg font-bold text-[#6366F1]">
-                AED {Math.round(medPsf).toLocaleString()}
-              </span>
-              <span className="text-xs text-slate-500">/ sqft</span>
-            </div>
-          )}
-
-          {comps.length === 0 ? (
-            <p className="text-sm text-slate-500">No comparable DLD transactions found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+                Median PSF · <span style={{ fontFamily: 'var(--mono)', fontStyle: 'normal', fontSize: 18 }}>AED {Math.round(medPsf).toLocaleString()}</span> per square foot, {comps.length} comparables
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--serif)', fontSize: 14 }}>
                 <thead>
-                  <tr className="border-b border-[#1F1F2E] text-left">
-                    <th className="pb-2 pr-4 font-medium text-slate-500">Date</th>
-                    <th className="pb-2 pr-4 font-medium text-slate-500">Price</th>
-                    <th className="pb-2 pr-4 font-medium text-slate-500">Size (sqft)</th>
-                    <th className="pb-2 font-medium text-slate-500">PSF</th>
+                  <tr style={{ borderBottom: '1px solid var(--rule)' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 12px 8px 0', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Date</th>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Price</th>
+                    <th style={{ textAlign: 'left', padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Size</th>
+                    <th style={{ textAlign: 'right', padding: '8px 0 8px 12px', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>PSF</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {comps.slice(0, 20).map((tx) => {
+                  {comps.slice(0, 12).map((tx) => {
                     const psf =
                       tx.price_per_sqft ??
                       (tx.price !== null && tx.size_sqft !== null && tx.size_sqft > 0
                         ? Math.round(tx.price / tx.size_sqft)
                         : null);
                     return (
-                      <tr
-                        key={tx.id}
-                        className="border-b border-[#1F1F2E]/50 hover:bg-[#09090E]/60 transition-colors"
-                      >
-                        <td className="py-2 pr-4 text-slate-400 tabular-nums">
+                      <tr key={tx.id} style={{ borderBottom: '1px dotted var(--rule-soft)' }}>
+                        <td style={{ padding: '10px 12px 10px 0', color: 'var(--ink-2)' }}>
                           {tx.transaction_date
                             ? new Date(tx.transaction_date).toLocaleDateString('en-GB', {
                                 day: 'numeric',
@@ -319,13 +325,13 @@ export default async function ListingDetailPage({
                               })
                             : '—'}
                         </td>
-                        <td className="py-2 pr-4 text-slate-100 tabular-nums">
-                          {tx.price !== null ? `AED ${tx.price.toLocaleString()}` : '—'}
+                        <td style={{ padding: '10px 12px', fontFamily: 'var(--display)', fontSize: 18 }}>
+                          {tx.price ? fmtFull(tx.price) : '—'}
                         </td>
-                        <td className="py-2 pr-4 text-slate-400 tabular-nums">
-                          {fmt(tx.size_sqft)}
+                        <td style={{ padding: '10px 12px', color: 'var(--ink-2)', fontFamily: 'var(--mono)', fontSize: 13 }}>
+                          {tx.size_sqft ? `${tx.size_sqft.toLocaleString()} sqft` : '—'}
                         </td>
-                        <td className="py-2 text-slate-300 tabular-nums">
+                        <td style={{ padding: '10px 0 10px 12px', textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 13 }}>
                           {psf !== null ? `AED ${Math.round(psf).toLocaleString()}` : '—'}
                         </td>
                       </tr>
@@ -333,211 +339,164 @@ export default async function ListingDetailPage({
                   })}
                 </tbody>
               </table>
-              {comps.length > 20 && (
-                <p className="mt-2 text-xs text-slate-500">Showing 20 of {comps.length} transactions</p>
-              )}
             </div>
           )}
-        </section>
 
-        {/* ── 4. Yield Analysis ────────────────────────────────────────── */}
-        <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] p-6">
-          <h2 className="mb-4 text-lg font-semibold text-slate-100">Yield Analysis</h2>
-
-          <div className="mb-6 flex flex-wrap gap-4">
-            {/* Current yield */}
-            <div className="flex flex-col gap-1 rounded-xl border border-[#1F1F2E] bg-[#09090E] px-5 py-3">
-              <span className="text-xs text-slate-500">Estimated Gross Yield</span>
-              <span
-                className={`tabular-nums text-3xl font-bold ${
-                  listing.estimated_gross_yield !== null && listing.estimated_gross_yield > 6
-                    ? 'text-emerald-400'
-                    : listing.estimated_gross_yield !== null && listing.estimated_gross_yield >= 4
-                    ? 'text-amber-400'
-                    : 'text-slate-400'
-                }`}
-              >
-                {listing.estimated_gross_yield !== null
-                  ? `${listing.estimated_gross_yield.toFixed(1)}%`
-                  : '—'}
-              </span>
+          {similarDrops.length > 0 && (
+            <div style={{ marginTop: 40, borderTop: '4px double var(--rule)', paddingTop: 24 }}>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>
+                Of similar particular · in {listing.area}
+              </div>
+              <div className="register">
+                {similarDrops.map((sim, i) => (
+                  <Link
+                    href={`/listing/${sim.id}`}
+                    key={sim.id}
+                    style={{ display: 'block', textDecoration: 'none' }}
+                  >
+                    <div
+                      className="atlas-item"
+                      style={{ gridTemplateColumns: '36px 1fr auto' }}
+                    >
+                      <div className="num">{String(i + 1).padStart(2, '0')}.</div>
+                      <div>
+                        <div className="name">{sim.title ?? sim.area}</div>
+                        <div className="meta">
+                          {sim.area} · {sim.beds ?? '—'}br · {sim.property_type ?? '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="price">{fmtAED(sim.price ?? 0)}</div>
+                        <div className="drop">↓ {Math.abs(sim.drop_percent ?? 0).toFixed(1)}%</div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
             </div>
+          )}
+        </div>
 
-            {/* Area average */}
-            {areaAvgYield !== null && (
-              <div className="flex flex-col gap-1 rounded-xl border border-[#1F1F2E] bg-[#09090E] px-5 py-3">
-                <span className="text-xs text-slate-500">12-Month Area Average</span>
-                <span className="tabular-nums text-3xl font-bold text-slate-300">
-                  {areaAvgYield.toFixed(1)}%
+        <div className="v-rule"></div>
+
+        {/* SIDE — price summary */}
+        <aside className="dossier-side">
+          <div className="side-block">
+            <div className="side-block-label">Current Asking · {shortDate()}</div>
+            <div className="side-current">{fmtAED(listing.price ?? 0)}</div>
+            {listing.peak_price && listing.peak_price !== listing.price && (
+              <div className="side-was">listed {fmtFull(listing.peak_price)}</div>
+            )}
+            {(listing.drop_percent ?? 0) !== 0 && (
+              <div style={{ marginTop: 14, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className={`classif ${c.cls}`} style={{ margin: 0 }}>
+                  ↓ {cut.toFixed(1)}% from list
                 </span>
               </div>
             )}
           </div>
 
-          <h3 className="mb-3 text-sm font-medium text-slate-400">12-Month Yield Trend — {listing.area}</h3>
-          <YieldTrendChart data={yieldTrend} />
-        </section>
-
-        {/* ── 5. Seller Motivation breakdown ───────────────────────────── */}
-        <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] p-6">
-          <h2 className="mb-4 text-lg font-semibold text-slate-100">Seller Motivation</h2>
-
-          {/* Large badge */}
-          <div className="mb-6 flex items-center gap-3">
-            <MotivationBadgeLarge motivation={listing.motivation_score} />
-          </div>
-
-          {/* Score factors */}
-          <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <ScoreFactor
-              label="Price Drop"
-              value={listing.drop_percent !== null ? `${listing.drop_percent.toFixed(1)}%` : '—'}
-              sub="from peak"
-              highlight={listing.drop_percent !== null && listing.drop_percent > 10}
-            />
-            <ScoreFactor
-              label="Drop Count"
-              value={fmt(listing.drop_count)}
-              sub="total drops"
-              highlight={listing.drop_count >= 3}
-            />
-            <ScoreFactor
-              label="Drop Velocity"
-              value={
-                listing.drop_velocity !== null
-                  ? `${(listing.drop_velocity * 30).toFixed(1)}/mo`
-                  : '—'
-              }
-              sub="drops per month"
-              highlight={listing.drop_velocity !== null && listing.drop_velocity > 0.5}
-            />
-            <ScoreFactor
-              label="Days on Market"
-              value={fmt(listing.days_on_market)}
-              sub="days listed"
-              highlight={listing.days_on_market !== null && listing.days_on_market > 90}
-            />
-          </div>
-
-          {/* Plain English interpretation */}
-          <div className="rounded-xl border border-[#1F1F2E] bg-[#09090E] p-4">
-            <p className="text-sm leading-relaxed text-slate-300">{narrative}</p>
-          </div>
-        </section>
-
-        {/* ── 6. Similar Active Drops ──────────────────────────────────── */}
-        {similarDrops.length > 0 && (
-          <section className="rounded-2xl border border-[#1F1F2E] bg-[#111118] p-6">
-            <h2 className="mb-4 text-lg font-semibold text-slate-100">
-              Similar Active Drops in {listing.area}
-            </h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {similarDrops.map((similar) => (
-                <Link key={similar.id} href={`/listing/${similar.id}`}>
-                  <ListingCard listing={similar} />
-                </Link>
-              ))}
+          <div className="side-block">
+            <div className="side-block-label">The Numbers</div>
+            <div className="side-row">
+              <span className="label">Reductions</span>
+              <span className="val">{listing.drop_count}</span>
             </div>
-          </section>
-        )}
+            <div className="side-row">
+              <span className="label">Days on market</span>
+              <span className="val">{listing.days_on_market ?? '—'}</span>
+            </div>
+            <div className="side-row">
+              <span className="label">Price / sqft</span>
+              <span className="val">
+                {listing.listing_psf ? Math.round(listing.listing_psf).toLocaleString() : '—'}
+              </span>
+            </div>
+            <div className="side-row">
+              <span className="label">Area median</span>
+              <span className="val">
+                {listing.area_avg_psf ? Math.round(listing.area_avg_psf).toLocaleString() : '—'}
+              </span>
+            </div>
+            <div className="side-row">
+              <span className="label">Gross yield</span>
+              <span className="val">
+                {listing.estimated_gross_yield !== null
+                  ? `${listing.estimated_gross_yield.toFixed(1)}%`
+                  : '—'}
+              </span>
+            </div>
+            {areaAvgYield !== null && (
+              <div className="side-row">
+                <span className="label">Area yield · 12mo</span>
+                <span className="val">{areaAvgYield.toFixed(1)}%</span>
+              </div>
+            )}
+            <div className="side-row">
+              <span className="label">Motivation</span>
+              <span className={`val ${listing.motivation_score === 'HIGH' ? 'red' : ''}`}>
+                {listing.motivation_score}
+              </span>
+            </div>
+          </div>
 
+          {listing.agent_name && (
+            <div className="side-block">
+              <div className="side-block-label">Of the Correspondent</div>
+              <div style={{ fontFamily: 'var(--display)', fontSize: 18, letterSpacing: '-0.005em' }}>
+                {listing.agent_name}
+              </div>
+              {listing.agent_phone && (
+                <div
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: 13,
+                    color: 'var(--ink-3)',
+                    marginTop: 4,
+                  }}
+                >
+                  {listing.agent_phone}
+                </div>
+              )}
+            </div>
+          )}
+
+          {listing.listing_url && (
+            <a
+              href={listing.listing_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cta-stamp"
+              style={{ textDecoration: 'none' }}
+            >
+              View original sheet ↗
+            </a>
+          )}
+          <Link href="/watchlist" className="cta-secondary" style={{ textDecoration: 'none' }}>
+            Notify me on next mark
+          </Link>
+          <Link href="/watchlist" className="cta-secondary" style={{ textDecoration: 'none' }}>
+            Add to ledger
+          </Link>
+
+          <div
+            style={{
+              marginTop: 18,
+              paddingTop: 14,
+              borderTop: '1px solid var(--rule-soft)',
+              fontFamily: 'var(--mono)',
+              fontSize: 10,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+              lineHeight: 1.8,
+            }}
+          >
+            Reference · DXB-{listing.id.slice(0, 8).toUpperCase()}-{String(dossierNum).padStart(3, '0')}<br />
+            All data indicative. Sourced from public listing sheets.
+          </div>
+        </aside>
       </div>
     </main>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Small local components
-// ---------------------------------------------------------------------------
-
-function MotivationBadgeLarge({ motivation }: { motivation: 'HIGH' | 'MEDIUM' | 'LOW' }) {
-  const styles: Record<string, string> = {
-    HIGH: 'bg-red-600 text-white',
-    MEDIUM: 'bg-amber-500 text-black',
-    LOW: 'bg-teal-600 text-white',
-  };
-  const labels: Record<string, string> = {
-    HIGH: 'High Motivation',
-    MEDIUM: 'Medium Motivation',
-    LOW: 'Low Motivation',
-  };
-  return (
-    <span className={`inline-flex items-center rounded-xl px-5 py-2.5 text-xl font-bold ${styles[motivation]}`}>
-      {labels[motivation]}
-    </span>
-  );
-}
-
-function ScoreFactor({
-  label,
-  value,
-  sub,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-1 rounded-xl border border-[#1F1F2E] bg-[#09090E] p-4">
-      <span className="text-xs text-slate-500">{label}</span>
-      <span
-        className={`tabular-nums text-2xl font-bold ${highlight ? 'text-red-400' : 'text-slate-100'}`}
-      >
-        {value}
-      </span>
-      <span className="text-xs text-slate-600">{sub}</span>
-    </div>
-  );
-}
-
-// Inline SVG icons to avoid adding an icon library
-function BedIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4 text-slate-500" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 12V6a1 1 0 011-1h2m0 0v7m0-7h10m0 0a1 1 0 011 1v5m0 0H4m16 0v3M4 17v3" />
-    </svg>
-  );
-}
-
-function BathIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4 text-slate-500" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 13.5V5a2 2 0 014 0v.75m4.5 7.75H3.75a.75.75 0 000 1.5h.75v1.5a2.25 2.25 0 004.5 0V15h1.5v1.5a2.25 2.25 0 004.5 0V15h.75a.75.75 0 000-1.5z" />
-    </svg>
-  );
-}
-
-function SqftIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4 text-slate-500" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-    </svg>
-  );
-}
-
-function PinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4 text-slate-500" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4 text-slate-500" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-    </svg>
-  );
-}
-
-function BookmarkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="h-4 w-4" aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
-    </svg>
   );
 }

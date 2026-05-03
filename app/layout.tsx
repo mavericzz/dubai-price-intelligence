@@ -2,21 +2,21 @@ import type { Metadata } from 'next';
 import dynamic from 'next/dynamic';
 import './globals.css';
 
-const NavBar = dynamic(() => import('@/components/NavBar').then((m) => m.NavBar), {
-  ssr: false,
-});
+const AlmanacShell = dynamic(
+  () => import('@/components/AlmanacShell').then((m) => m.AlmanacShell),
+  { ssr: false },
+);
 
 export const metadata: Metadata = {
-  title: 'Dubai Price Intelligence',
-  description: 'Track price drops and opportunities in Dubai real estate',
+  title: 'The DXB Almanac — A register of price corrections in Dubai property',
+  description: 'A quiet, editorial register of price drops and corrections in Dubai real estate.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <NavBar />
-        {children}
+        <AlmanacShell>{children}</AlmanacShell>
       </body>
     </html>
   );

@@ -11,8 +11,6 @@ import {
 } from '@/lib/queries';
 import type { Watchlist } from '@/types';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const DUBAI_AREAS = [
   'Al Barsha',
   'Al Quoz',
@@ -36,8 +34,6 @@ const DUBAI_AREAS = [
 
 const PROPERTY_TYPES = ['Apartment', 'Villa', 'Townhouse', 'Penthouse', 'Studio'];
 const BEDS = [0, 1, 2, 3, 4, 5, 6];
-
-// ─── Form state type ──────────────────────────────────────────────────────────
 
 interface WatchlistFormData {
   name: string;
@@ -104,82 +100,47 @@ function formToPayload(
     email_enabled: form.email_enabled,
     whatsapp_enabled: form.whatsapp_enabled,
     whatsapp_phone: form.whatsapp_enabled && form.whatsapp_phone ? form.whatsapp_phone : null,
+    whatsapp_opted_in_at: null,
+    whatsapp_opted_out_at: null,
   };
 }
 
-// ─── Shared UI primitives ─────────────────────────────────────────────────────
+function ruleSummary(w: Watchlist): string {
+  const parts: string[] = [];
+  if (w.areas && w.areas.length > 0) {
+    parts.push(w.areas.slice(0, 2).join(', ') + (w.areas.length > 2 ? ` +${w.areas.length - 2}` : ''));
+  } else {
+    parts.push('Any area');
+  }
+  if (w.property_type) parts.push(w.property_type);
+  if (w.beds_min !== null || w.beds_max !== null) {
+    const lo = w.beds_min !== null ? (w.beds_min === 0 ? 'Studio' : `${w.beds_min}br`) : '';
+    const hi = w.beds_max !== null ? (w.beds_max === 0 ? 'Studio' : `${w.beds_max}br`) : '';
+    parts.push(lo && hi && lo !== hi ? `${lo}–${hi}` : lo || hi);
+  }
+  if (w.max_price !== null) parts.push(`≤ AED ${w.max_price.toLocaleString()}`);
+  if (w.min_drop_percent !== null) parts.push(`cut ≥ ${w.min_drop_percent}%`);
+  if (w.min_yield !== null) parts.push(`yield ≥ ${w.min_yield}%`);
+  if (w.motivation_filter) parts.push(w.motivation_filter);
+  return parts.join(' · ');
+}
 
 function Spinner() {
   return (
-    <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#1F1F2E] border-t-[#6366F1]" />
-  );
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-xs font-medium text-slate-400">{children}</label>;
-}
-
-function TextInput({
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-  required,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  required?: boolean;
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      required={required}
-      className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-[#6366F1] transition-colors"
+    <div
+      style={{
+        width: 18,
+        height: 18,
+        border: '2px solid var(--rule-soft)',
+        borderTopColor: 'var(--ink)',
+        borderRadius: '50%',
+        animation: 'spin 0.8s linear infinite',
+      }}
     />
   );
 }
 
-function SelectInput({
-  value,
-  onChange,
-  options,
-  placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { label: string; value: string }[];
-  placeholder?: string;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-slate-300 outline-none focus:border-[#6366F1] transition-colors"
-    >
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-// ─── Areas multi-select ───────────────────────────────────────────────────────
-
-function AreasSelect({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
+function AreasSelect({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -201,35 +162,47 @@ function AreasSelect({
       : value.slice(0, 2).join(', ') + (value.length > 2 ? ` +${value.length - 2}` : '');
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} style={{ position: 'relative' }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-left outline-none focus:border-[#6366F1] transition-colors"
+        className="almanac-field"
+        style={{ textAlign: 'left', cursor: 'pointer' }}
       >
-        <span className={value.length === 0 ? 'text-slate-600' : 'text-slate-300'}>{label}</span>
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          className={`h-4 w-4 flex-shrink-0 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        {label}
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-[#1F1F2E] bg-[#111118] py-1 shadow-xl">
+        <div
+          style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            maxHeight: 220,
+            overflowY: 'auto',
+            background: 'var(--paper)',
+            border: '1px solid var(--rule)',
+            padding: '6px 0',
+          }}
+        >
           {DUBAI_AREAS.map((area) => (
             <label
               key={area}
-              className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 hover:bg-[#1F1F2E] text-sm text-slate-300"
+              style={{
+                display: 'flex',
+                gap: 10,
+                padding: '6px 14px',
+                cursor: 'pointer',
+                fontFamily: 'var(--serif)',
+                fontSize: 14,
+              }}
             >
               <input
                 type="checkbox"
                 checked={value.includes(area)}
                 onChange={() => toggle(area)}
-                className="accent-[#6366F1] h-3.5 w-3.5 flex-shrink-0"
+                style={{ accentColor: 'var(--ink)' }}
               />
               {area}
             </label>
@@ -239,8 +212,6 @@ function AreasSelect({
     </div>
   );
 }
-
-// ─── Login form ───────────────────────────────────────────────────────────────
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -258,151 +229,100 @@ function LoginForm() {
       options: { emailRedirectTo: typeof window !== 'undefined' ? window.location.href : '' },
     });
     setLoading(false);
-    if (authError) {
-      setError(authError.message);
-    } else {
-      setSent(true);
-    }
+    if (authError) setError(authError.message);
+    else setSent(true);
   }
 
-  if (sent) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-4 bg-[#09090E]">
-        <div className="w-full max-w-sm rounded-xl border border-[#1F1F2E] bg-[#111118] p-8 text-center">
-          <p className="mb-4 text-4xl" aria-hidden="true">✉️</p>
-          <h2 className="mb-2 text-xl font-semibold text-slate-100">Check your email</h2>
-          <p className="text-sm text-slate-400">
-            We sent a magic link to{' '}
-            <strong className="text-slate-200">{email}</strong>. Click it to sign in.
-          </p>
-          <button
-            className="mt-6 text-sm text-[#6366F1] hover:underline"
-            onClick={() => setSent(false)}
-          >
-            Use a different email
-          </button>
+  return (
+    <div className="almanac-page" style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}>
+      <div className="almanac-card" style={{ maxWidth: 480, width: '100%' }}>
+        <div className="eyebrow" style={{ color: 'var(--red)', marginBottom: 12 }}>
+          The Subscriber&rsquo;s Ledger
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-[#09090E]">
-      <div className="w-full max-w-sm rounded-xl border border-[#1F1F2E] bg-[#111118] p-8">
-        <h1 className="mb-1 text-2xl font-bold text-slate-100">My Watchlists</h1>
-        <p className="mb-6 text-sm text-slate-400">
-          Sign in with a magic link to manage your price-drop alerts.
-        </p>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <input
-            type="email"
-            placeholder="your@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-[#6366F1] transition-colors"
-          />
-          {error && <p className="text-xs text-red-400">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-lg bg-[#6366F1] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {loading ? 'Sending…' : 'Send magic link'}
-          </button>
-        </form>
+        {sent ? (
+          <>
+            <h2
+              style={{
+                fontFamily: 'var(--display)',
+                fontSize: 36,
+                lineHeight: 1,
+                letterSpacing: '-0.02em',
+                marginBottom: 14,
+              }}
+            >
+              Word has been sent.
+            </h2>
+            <p
+              style={{
+                fontFamily: 'var(--display)',
+                fontStyle: 'italic',
+                fontSize: 18,
+                color: 'var(--ink-2)',
+                lineHeight: 1.5,
+              }}
+            >
+              Look for a magic link in your inbox at <strong>{email}</strong>. The next edition cannot be filed
+              without it.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSent(false)}
+              className="cta-secondary"
+              style={{ marginTop: 24 }}
+            >
+              Use a different address
+            </button>
+          </>
+        ) : (
+          <>
+            <h2
+              style={{
+                fontFamily: 'var(--display)',
+                fontSize: 42,
+                lineHeight: 1,
+                letterSpacing: '-0.02em',
+                marginBottom: 12,
+              }}
+            >
+              Subscribe to <em style={{ fontStyle: 'italic' }}>the Ledger</em>.
+            </h2>
+            <p
+              style={{
+                fontFamily: 'var(--display)',
+                fontStyle: 'italic',
+                fontSize: 18,
+                color: 'var(--ink-2)',
+                marginBottom: 20,
+                lineHeight: 1.45,
+              }}
+            >
+              Standing orders and watched dossiers, sent by post or by wire when the next mark is filed.
+            </p>
+            <form onSubmit={handleSubmit}>
+              <input
+                type="email"
+                placeholder="your@address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="almanac-field"
+                style={{ marginBottom: 16 }}
+              />
+              {error && (
+                <p style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
+                  {error}
+                </p>
+              )}
+              <button type="submit" disabled={loading} className="cta-stamp">
+                {loading ? 'Filing…' : 'Send the magic link'}
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
 }
-
-// ─── Criteria summary chips ───────────────────────────────────────────────────
-
-function CriteriaSummary({ w }: { w: Watchlist }) {
-  const chips: string[] = [];
-
-  if (w.areas && w.areas.length > 0) {
-    const shown = w.areas.slice(0, 2).join(', ');
-    const extra = w.areas.length > 2 ? ` +${w.areas.length - 2}` : '';
-    chips.push(shown + extra);
-  }
-
-  if (w.property_type) chips.push(w.property_type);
-
-  if (w.beds_min !== null || w.beds_max !== null) {
-    const lo = w.beds_min !== null ? (w.beds_min === 0 ? 'Studio' : `${w.beds_min}BR`) : '';
-    const hi = w.beds_max !== null ? (w.beds_max === 0 ? 'Studio' : `${w.beds_max}BR`) : '';
-    chips.push(lo && hi && lo !== hi ? `${lo}–${hi}` : lo || hi);
-  }
-
-  if (w.max_price !== null) chips.push(`≤ AED ${w.max_price.toLocaleString()}`);
-  if (w.min_drop_percent !== null) chips.push(`Drop ≥ ${w.min_drop_percent}%`);
-  if (w.min_yield !== null) chips.push(`Yield ≥ ${w.min_yield}%`);
-  if (w.motivation_filter) chips.push(`${w.motivation_filter} motivation`);
-
-  if (chips.length === 0) {
-    return <p className="text-xs text-slate-600">No criteria set — matches all listings</p>;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {chips.map((chip) => (
-        <span
-          key={chip}
-          className="rounded-full bg-[#09090E] px-2 py-0.5 text-xs text-slate-400 border border-[#1F1F2E]"
-        >
-          {chip}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-// ─── Watchlist card ───────────────────────────────────────────────────────────
-
-function WatchlistCard({
-  watchlist,
-  onEdit,
-  onDelete,
-}: {
-  watchlist: Watchlist;
-  onEdit: (w: Watchlist) => void;
-  onDelete: (id: string) => void;
-}) {
-  return (
-    <article className="flex flex-col gap-3 rounded-xl border border-[#1F1F2E] bg-[#111118] p-4">
-      <h3 className="font-semibold text-slate-100 leading-snug">{watchlist.name}</h3>
-
-      <CriteriaSummary w={watchlist} />
-
-      <div className="flex items-center gap-4 text-xs">
-        <span className={watchlist.email_enabled ? 'text-emerald-400' : 'text-slate-600'}>
-          {watchlist.email_enabled ? '✓' : '✗'} Email
-        </span>
-        <span className={watchlist.whatsapp_enabled ? 'text-emerald-400' : 'text-slate-600'}>
-          {watchlist.whatsapp_enabled ? '✓' : '✗'} WhatsApp
-        </span>
-      </div>
-
-      <div className="flex items-center justify-end gap-2 border-t border-[#1F1F2E] pt-3">
-        <button
-          onClick={() => onEdit(watchlist)}
-          className="rounded-lg border border-[#1F1F2E] px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-[#6366F1]/50 hover:text-[#6366F1]"
-        >
-          Edit
-        </button>
-        <button
-          onClick={() => onDelete(watchlist.id)}
-          className="rounded-lg border border-[#1F1F2E] px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-red-500/50 hover:text-red-400"
-        >
-          Delete
-        </button>
-      </div>
-    </article>
-  );
-}
-
-// ─── Create / Edit form modal ─────────────────────────────────────────────────
 
 function WatchlistFormModal({
   initial,
@@ -425,198 +345,264 @@ function WatchlistFormModal({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim()) {
-      setNameError('Watchlist name is required');
+      setNameError('A standing order needs a name.');
       return;
     }
     onSave(form);
   }
 
-  const bedsOptions = BEDS.map((b) => ({
-    label: b === 0 ? 'Studio' : `${b} BR`,
-    value: String(b),
-  }));
+  const labelStyle: React.CSSProperties = {
+    fontFamily: 'var(--mono)',
+    fontSize: 10,
+    letterSpacing: '0.14em',
+    textTransform: 'uppercase',
+    color: 'var(--ink-3)',
+    display: 'block',
+    marginBottom: 4,
+  };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 px-4 py-8"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        background: 'rgba(22, 20, 14, 0.42)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        padding: '60px 16px',
+        overflowY: 'auto',
+      }}
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
-      <div className="w-full max-w-lg rounded-xl border border-[#1F1F2E] bg-[#111118] shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#1F1F2E] px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-100">
-            {isEdit ? 'Edit Watchlist' : 'Create Watchlist'}
-          </h2>
+      <div
+        style={{
+          maxWidth: 560,
+          width: '100%',
+          background: 'var(--paper)',
+          border: '1px solid var(--rule)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '20px 28px',
+            borderBottom: '1px solid var(--rule)',
+          }}
+        >
+          <div>
+            <div className="eyebrow" style={{ color: 'var(--red)' }}>
+              {isEdit ? 'Edit Standing Order' : 'New Standing Order'}
+            </div>
+            <h3
+              style={{
+                fontFamily: 'var(--display)',
+                fontSize: 26,
+                marginTop: 4,
+                letterSpacing: '-0.01em',
+              }}
+            >
+              The particulars.
+            </h3>
+          </div>
           <button
             type="button"
             onClick={onCancel}
-            className="rounded p-1 text-slate-500 hover:text-slate-300 transition-colors"
-            aria-label="Close"
+            style={{
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              letterSpacing: '0.14em',
+              color: 'var(--ink-3)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+            }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            CLOSE ✕
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5 p-6">
-          {/* Name */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Name *</FieldLabel>
-            <TextInput
+        <form onSubmit={handleSubmit} style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div>
+            <label style={labelStyle}>Name *</label>
+            <input
+              type="text"
               value={form.name}
-              onChange={(v) => { set('name', v); setNameError(''); }}
-              placeholder="e.g. Dubai Marina Apartments"
+              onChange={(e) => {
+                set('name', e.target.value);
+                setNameError('');
+              }}
+              placeholder="e.g. Two-bedroom Marina, under five"
+              className="almanac-field"
               required
             />
-            {nameError && <p className="text-xs text-red-400">{nameError}</p>}
+            {nameError && (
+              <p style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--red)', marginTop: 4 }}>
+                {nameError}
+              </p>
+            )}
           </div>
 
-          {/* Areas */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Areas</FieldLabel>
+          <div>
+            <label style={labelStyle}>Areas</label>
             <AreasSelect value={form.areas} onChange={(v) => set('areas', v)} />
           </div>
 
-          {/* Property type */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Property Type</FieldLabel>
-            <SelectInput
+          <div>
+            <label style={labelStyle}>Property type</label>
+            <select
               value={form.property_type}
-              onChange={(v) => set('property_type', v)}
-              options={PROPERTY_TYPES.map((t) => ({ label: t, value: t }))}
-              placeholder="Any type"
-            />
+              onChange={(e) => set('property_type', e.target.value)}
+              className="almanac-field"
+            >
+              <option value="">Any type</option>
+              {PROPERTY_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Beds range */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Beds</FieldLabel>
-            <div className="grid grid-cols-2 gap-2">
-              <SelectInput
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Min beds</label>
+              <select
                 value={form.beds_min}
-                onChange={(v) => set('beds_min', v)}
-                options={bedsOptions}
-                placeholder="Min beds"
-              />
-              <SelectInput
+                onChange={(e) => set('beds_min', e.target.value)}
+                className="almanac-field"
+              >
+                <option value="">Any</option>
+                {BEDS.map((b) => (
+                  <option key={b} value={String(b)}>
+                    {b === 0 ? 'Studio' : `${b}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Max beds</label>
+              <select
                 value={form.beds_max}
-                onChange={(v) => set('beds_max', v)}
-                options={bedsOptions}
-                placeholder="Max beds"
-              />
+                onChange={(e) => set('beds_max', e.target.value)}
+                className="almanac-field"
+              >
+                <option value="">Any</option>
+                {BEDS.map((b) => (
+                  <option key={b} value={String(b)}>
+                    {b === 0 ? 'Studio' : `${b}`}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Max price */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Max Price (AED)</FieldLabel>
+          <div>
+            <label style={labelStyle}>Max price (AED)</label>
             <input
               type="number"
               value={form.max_price}
               onChange={(e) => set('max_price', e.target.value)}
-              placeholder="e.g. 2000000"
+              placeholder="e.g. 5,000,000"
+              className="almanac-field"
               min={0}
-              className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-[#6366F1] transition-colors tabular-nums"
             />
           </div>
 
-          {/* Drop % and yield % */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel>Min Drop %</FieldLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Min cut %</label>
               <input
                 type="number"
                 value={form.min_drop_percent}
                 onChange={(e) => set('min_drop_percent', e.target.value)}
-                placeholder="e.g. 5"
+                placeholder="e.g. 10"
+                className="almanac-field"
                 min={0}
                 max={100}
                 step={0.1}
-                className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-[#6366F1] transition-colors tabular-nums"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <FieldLabel>Min Yield %</FieldLabel>
+            <div>
+              <label style={labelStyle}>Min yield %</label>
               <input
                 type="number"
                 value={form.min_yield}
                 onChange={(e) => set('min_yield', e.target.value)}
                 placeholder="e.g. 7"
+                className="almanac-field"
                 min={0}
-                max={100}
+                max={30}
                 step={0.1}
-                className="w-full rounded-lg border border-[#1F1F2E] bg-[#09090E] px-3 py-2 text-sm text-slate-100 placeholder-slate-600 outline-none focus:border-[#6366F1] transition-colors tabular-nums"
               />
             </div>
           </div>
 
-          {/* Motivation filter */}
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel>Motivation</FieldLabel>
-            <SelectInput
+          <div>
+            <label style={labelStyle}>Motivation</label>
+            <select
               value={form.motivation_filter}
-              onChange={(v) => set('motivation_filter', v)}
-              options={[
-                { label: 'HIGH', value: 'HIGH' },
-                { label: 'MEDIUM', value: 'MEDIUM' },
-                { label: 'LOW', value: 'LOW' },
-              ]}
-              placeholder="Any"
-            />
+              onChange={(e) => set('motivation_filter', e.target.value)}
+              className="almanac-field"
+            >
+              <option value="">Any</option>
+              <option value="HIGH">HIGH</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="LOW">LOW</option>
+            </select>
           </div>
 
-          {/* Notifications */}
-          <div className="flex flex-col gap-3 rounded-lg border border-[#1F1F2E] bg-[#09090E] p-4">
-            <p className="text-xs font-medium text-slate-400">Notifications</p>
-
-            <label className="flex cursor-pointer items-center gap-3">
+          <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 18 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>
+              By what means
+            </div>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
               <input
                 type="checkbox"
                 checked={form.email_enabled}
                 onChange={(e) => set('email_enabled', e.target.checked)}
-                className="accent-[#6366F1] h-4 w-4 flex-shrink-0"
+                style={{ accentColor: 'var(--ink)' }}
               />
-              <span className="text-sm text-slate-300">Email alerts</span>
+              <span style={{ fontFamily: 'var(--serif)', fontSize: 15 }}>By post (email)</span>
             </label>
-
-            <div className="flex flex-col gap-2">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={form.whatsapp_enabled}
-                  onChange={(e) => set('whatsapp_enabled', e.target.checked)}
-                  className="accent-[#6366F1] h-4 w-4 flex-shrink-0"
-                />
-                <span className="text-sm text-slate-300">WhatsApp alerts</span>
-              </label>
-              {form.whatsapp_enabled && (
-                <div className="ml-7">
-                  <TextInput
-                    type="tel"
-                    value={form.whatsapp_phone}
-                    onChange={(v) => set('whatsapp_phone', v)}
-                    placeholder="+971 50 000 0000"
-                  />
-                </div>
-              )}
-            </div>
+            <label style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={form.whatsapp_enabled}
+                onChange={(e) => set('whatsapp_enabled', e.target.checked)}
+                style={{ accentColor: 'var(--ink)' }}
+              />
+              <span style={{ fontFamily: 'var(--serif)', fontSize: 15 }}>By wire (WhatsApp)</span>
+            </label>
+            {form.whatsapp_enabled && (
+              <input
+                type="tel"
+                value={form.whatsapp_phone}
+                onChange={(e) => set('whatsapp_phone', e.target.value)}
+                placeholder="+971 50 000 0000"
+                className="almanac-field"
+                style={{ marginLeft: 24, width: 'calc(100% - 24px)' }}
+              />
+            )}
           </div>
 
-          {/* Footer actions */}
-          <div className="flex items-center justify-end gap-3 border-t border-[#1F1F2E] pt-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded-lg border border-[#1F1F2E] px-4 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500 hover:text-slate-100"
-            >
+          <div
+            style={{
+              display: 'flex',
+              gap: 12,
+              borderTop: '1px solid var(--rule-soft)',
+              paddingTop: 16,
+              justifyContent: 'flex-end',
+            }}
+          >
+            <button type="button" onClick={onCancel} className="cta-secondary" style={{ width: 'auto', padding: '10px 22px' }}>
               Cancel
             </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-[#6366F1] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            >
-              {isEdit ? 'Save Changes' : 'Create Watchlist'}
+            <button type="submit" className="cta-stamp" style={{ width: 'auto', padding: '12px 26px' }}>
+              {isEdit ? 'Amend the order' : 'File the order'}
             </button>
           </div>
         </form>
@@ -625,8 +611,6 @@ function WatchlistFormModal({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-
 export default function WatchlistClient() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -634,27 +618,22 @@ export default function WatchlistClient() {
   const [listLoading, setListLoading] = useState(false);
   const [globalError, setGlobalError] = useState('');
 
-  // Form modal state
   const [showForm, setShowForm] = useState(false);
   const [editingWatchlist, setEditingWatchlist] = useState<Watchlist | null>(null);
 
-  // Initialise auth — detect existing session and listen for changes
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
     });
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch watchlists whenever user changes
   useEffect(() => {
     if (!user) {
       setWatchlists([]);
@@ -663,7 +642,7 @@ export default function WatchlistClient() {
     setListLoading(true);
     getWatchlists(user.id)
       .then(setWatchlists)
-      .catch(() => setGlobalError('Failed to load watchlists.'))
+      .catch(() => setGlobalError('Failed to load standing orders.'))
       .finally(() => setListLoading(false));
   }, [user]);
 
@@ -671,12 +650,10 @@ export default function WatchlistClient() {
     setEditingWatchlist(null);
     setShowForm(true);
   }
-
   function openEdit(w: Watchlist) {
     setEditingWatchlist(w);
     setShowForm(true);
   }
-
   function closeForm() {
     setShowForm(false);
     setEditingWatchlist(null);
@@ -689,18 +666,16 @@ export default function WatchlistClient() {
 
     if (editingWatchlist) {
       const prev = editingWatchlist;
-      // Optimistic update
       const optimistic: Watchlist = { ...prev, ...payload };
       setWatchlists((list) => list.map((w) => (w.id === prev.id ? optimistic : w)));
       closeForm();
-
       updateWatchlist(prev.id, payload)
-        .then((updated) => {
-          setWatchlists((list) => list.map((w) => (w.id === updated.id ? updated : w)));
-        })
+        .then((updated) =>
+          setWatchlists((list) => list.map((w) => (w.id === updated.id ? updated : w))),
+        )
         .catch(() => {
           setWatchlists((list) => list.map((w) => (w.id === prev.id ? prev : w)));
-          setGlobalError('Failed to update watchlist. Please try again.');
+          setGlobalError('Failed to amend the order.');
         });
     } else {
       const tempId = `temp-${Date.now()}`;
@@ -712,27 +687,25 @@ export default function WatchlistClient() {
       };
       setWatchlists((list) => [placeholder, ...list]);
       closeForm();
-
       createWatchlist(payload)
-        .then((created) => {
-          setWatchlists((list) => list.map((w) => (w.id === tempId ? created : w)));
-        })
+        .then((created) =>
+          setWatchlists((list) => list.map((w) => (w.id === tempId ? created : w))),
+        )
         .catch(() => {
           setWatchlists((list) => list.filter((w) => w.id !== tempId));
-          setGlobalError('Failed to create watchlist. Please try again.');
+          setGlobalError('Failed to file the order.');
         });
     }
   }
 
   function handleDelete(id: string) {
-    if (!confirm('Delete this watchlist? This cannot be undone.')) return;
+    if (!confirm('Cancel this standing order? It cannot be restored.')) return;
     const removed = watchlists.find((w) => w.id === id);
     setWatchlists((list) => list.filter((w) => w.id !== id));
     setGlobalError('');
-
     deleteWatchlist(id).catch(() => {
       if (removed) setWatchlists((list) => [removed, ...list]);
-      setGlobalError('Failed to delete watchlist. Please try again.');
+      setGlobalError('Failed to cancel the order.');
     });
   }
 
@@ -740,12 +713,18 @@ export default function WatchlistClient() {
     await supabase.auth.signOut();
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#09090E]">
-        <Spinner />
+      <div
+        style={{
+          padding: '80px 32px',
+          textAlign: 'center',
+          fontFamily: 'var(--display)',
+          fontStyle: 'italic',
+          color: 'var(--ink-3)',
+        }}
+      >
+        — Loading the ledger —
       </div>
     );
   }
@@ -754,79 +733,220 @@ export default function WatchlistClient() {
 
   return (
     <>
-      <div className="min-h-screen bg-[#09090E]">
-        {/* Sticky header */}
-        <header className="sticky top-0 z-10 border-b border-[#1F1F2E] bg-[#09090E]/90 backdrop-blur">
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-            <h1 className="text-lg font-bold text-slate-100">My Watchlists</h1>
-            <div className="flex items-center gap-3">
-              <span className="hidden text-xs text-slate-500 sm:block">{user.email}</span>
-              <button
-                onClick={handleSignOut}
-                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-              >
-                Sign out
-              </button>
-              <button
-                onClick={openCreate}
-                className="rounded-lg bg-[#6366F1] px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
-              >
-                + Create watchlist
-              </button>
-            </div>
+      <main className="almanac-page">
+        <section style={{ padding: '40px 0 24px', borderBottom: '4px double var(--rule)' }}>
+          <div className="eyebrow" style={{ color: 'var(--red)' }}>
+            The Subscriber&rsquo;s Ledger
           </div>
-        </header>
+          <h2
+            className="almanac-display"
+            style={{
+              fontSize: 'clamp(48px, 6vw, 84px)',
+              marginTop: 14,
+              letterSpacing: '-0.025em',
+              lineHeight: 1,
+            }}
+          >
+            Properties you are <em style={{ fontStyle: 'italic' }}>quietly watching</em>.
+          </h2>
+          <p
+            style={{
+              fontFamily: 'var(--display)',
+              fontStyle: 'italic',
+              fontSize: 22,
+              color: 'var(--ink-2)',
+              marginTop: 14,
+              maxWidth: 640,
+            }}
+          >
+            We send word — by post or by wire — the moment any of these moves again.
+          </p>
+          <div
+            style={{
+              marginTop: 18,
+              display: 'flex',
+              gap: 18,
+              alignItems: 'baseline',
+              flexWrap: 'wrap',
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-3)',
+            }}
+          >
+            <span>Subscriber · {user.email}</span>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                letterSpacing: '0.1em',
+                color: 'var(--ink-3)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+              }}
+            >
+              Sign out →
+            </button>
+          </div>
+        </section>
 
-        {/* Global error banner */}
         {globalError && (
-          <div className="mx-auto max-w-5xl px-4 pt-4">
-            <div className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
-              <span>{globalError}</span>
-              <button
-                onClick={() => setGlobalError('')}
-                className="ml-4 text-red-400/60 hover:text-red-400 transition-colors"
-                aria-label="Dismiss"
-              >
-                ✕
-              </button>
-            </div>
+          <div
+            style={{
+              marginTop: 20,
+              padding: '10px 14px',
+              border: '1px solid var(--red)',
+              color: 'var(--red)',
+              fontFamily: 'var(--mono)',
+              fontSize: 12,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <span>{globalError}</span>
+            <button
+              type="button"
+              onClick={() => setGlobalError('')}
+              style={{ background: 'transparent', border: 'none', color: 'var(--red)', cursor: 'pointer' }}
+            >
+              ✕
+            </button>
           </div>
         )}
 
-        {/* Body */}
-        <main className="mx-auto max-w-5xl px-4 py-8">
+        <div className="section-bar">
+          <h3>
+            <em>Standing</em> orders
+          </h3>
+          <div className="section-bar-meta">
+            {watchlists.length} active · auto-checked daily
+            <br />
+            <button
+              type="button"
+              onClick={openCreate}
+              style={{
+                fontFamily: 'var(--display)',
+                fontStyle: 'italic',
+                fontSize: 16,
+                color: 'var(--ink)',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid var(--ink)',
+                cursor: 'pointer',
+                padding: '2px 0',
+                marginTop: 6,
+              }}
+            >
+              + File a new order
+            </button>
+          </div>
+        </div>
+
+        <div className="ledger">
           {listLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Spinner />
+            <div
+              style={{
+                padding: '40px 0',
+                textAlign: 'center',
+                fontFamily: 'var(--display)',
+                fontStyle: 'italic',
+                color: 'var(--ink-3)',
+              }}
+            >
+              — Compiling the ledger —
             </div>
           ) : watchlists.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <p className="mb-4 text-5xl" aria-hidden="true">🔔</p>
-              <h2 className="mb-2 text-lg font-semibold text-slate-200">No watchlists yet</h2>
-              <p className="mb-6 max-w-xs text-sm text-slate-500">
-                Create a watchlist to get alerts when listings match your criteria.
+            <div
+              style={{
+                padding: '60px 32px',
+                textAlign: 'center',
+                background: 'var(--paper-2)',
+                border: '1px solid var(--rule-soft)',
+                marginTop: 24,
+              }}
+            >
+              <div className="eyebrow">— No orders filed —</div>
+              <p
+                style={{
+                  fontFamily: 'var(--display)',
+                  fontStyle: 'italic',
+                  fontSize: 24,
+                  color: 'var(--ink-2)',
+                  marginTop: 14,
+                }}
+              >
+                File a standing order and our correspondent will notify you on the next mark.
               </p>
               <button
+                type="button"
                 onClick={openCreate}
-                className="rounded-lg bg-[#6366F1] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+                className="cta-stamp"
+                style={{ width: 'auto', display: 'inline-block', marginTop: 22, padding: '12px 26px' }}
               >
-                Create your first watchlist
+                File the first order
               </button>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {watchlists.map((w) => (
-                <WatchlistCard
-                  key={w.id}
-                  watchlist={w}
-                  onEdit={openEdit}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
+            watchlists.map((w, i) => (
+              <div className="ledger-row" key={w.id}>
+                <div className="num">{String(i + 1).padStart(2, '0')}.</div>
+                <div>
+                  <div className="name">{w.name}</div>
+                  <div className="rule-line">{ruleSummary(w)}</div>
+                </div>
+                <div className="stat-grid">
+                  <div>
+                    <div className="stat-label">Means</div>
+                    <div
+                      className="stat-val"
+                      style={{ fontSize: 14, fontFamily: 'var(--mono)', textTransform: 'uppercase' }}
+                    >
+                      {[w.email_enabled && 'POST', w.whatsapp_enabled && 'WIRE']
+                        .filter(Boolean)
+                        .join(' · ') || '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="stat-label">Filed</div>
+                    <div className="stat-val" style={{ fontSize: 14, fontFamily: 'var(--mono)' }}>
+                      {new Date(w.created_at).toLocaleDateString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: '2-digit',
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => openEdit(w)}
+                    className="toggle-stamp on"
+                    style={{ background: 'transparent', color: 'var(--ink)' }}
+                  >
+                    Amend
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(w.id)}
+                    className="toggle-stamp off"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ))
           )}
-        </main>
-      </div>
+        </div>
+      </main>
 
       {showForm && (
         <WatchlistFormModal
@@ -836,6 +956,14 @@ export default function WatchlistClient() {
           onCancel={closeForm}
         />
       )}
+
+      <style jsx global>{`
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
     </>
   );
 }

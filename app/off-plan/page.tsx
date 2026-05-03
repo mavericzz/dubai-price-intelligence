@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 import { OffPlanFeed } from './OffPlanFeed';
 
 export const metadata: Metadata = {
-  title: 'Off-Plan Listings — Dubai Price Intelligence',
-  description: 'Browse off-plan properties with developer pricing, payment plans, and completion dates',
+  title: 'Off-Plan Register — The DXB Almanac',
+  description: 'Off-plan properties — developer marks, payment plans, and handovers, filed daily.',
 };
 
 export default async function OffPlanPage() {
@@ -18,24 +18,18 @@ export default async function OffPlanPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#09090E] text-slate-100">
-      <div className="mx-auto max-w-[1400px] px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="mb-1 flex items-center gap-2 text-xs text-slate-500">
-            <span>Dubai Price Intelligence</span>
-            <span>/</span>
-            <span className="text-slate-400">Off-Plan</span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-100">Off-Plan Properties</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            New launches with developer pricing, payment plans, and completion dates
-          </p>
-        </header>
-
-        {/* Feed */}
-        <OffPlanFeed initialAreas={areas} />
+    <main className="almanac-page">
+      <div className="section-bar">
+        <h3>
+          The <em>Off-Plan</em> Register
+        </h3>
+        <div className="section-bar-meta">
+          New launches · payment plans · handovers
+          <br />
+          Filed daily, save Fridays
+        </div>
       </div>
+      <OffPlanFeed initialAreas={areas} />
     </main>
   );
 }
