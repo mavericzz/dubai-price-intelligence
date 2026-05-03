@@ -6,11 +6,11 @@ import type {
   DLDRental,
   Watchlist,
   ComputedListing,
+  OffPlanListing,
   ListingFilters,
   ListingSortField,
   SortDirection,
   PaginationParams,
-  OffPlanListing,
 } from '../types';
 import {
   computeListingFields,
@@ -489,17 +489,17 @@ export async function recalculateDealScores(
 }
 
 // ---------------------------------------------------------------------------
-// Off-plan query functions (used by /off-plan feed)
+// Off-plan queries
 // ---------------------------------------------------------------------------
 
 export async function getOffPlanListings(
-  filters: { area?: string; property_type?: string; beds?: number },
+  filters: Pick<ListingFilters, 'area' | 'property_type' | 'beds'>,
   sort: { field: ListingSortField; direction: SortDirection },
   page: PaginationParams,
 ): Promise<OffPlanListing[]> {
   let query = supabase
     .from('listings')
-    .select('id,title,area,developer,price,peak_price,payment_plan,completion_date,motivation_score,beds,size_sqft,image_url,listing_url,drop_pct,price_original_aed,days_on_market,listing_status')
+    .select('*')
     .eq('is_off_plan', true)
     .eq('listing_status', 'active');
 
@@ -510,81 +510,19 @@ export async function getOffPlanListings(
   const { data, error } = await query;
   if (error) throw error;
 
-  type Row = {
-    id: string;
-    title: string | null;
-    area: string | null;
-    developer: string | null;
-    price: number | null;
-    peak_price: number | null;
-    payment_plan: string | null;
-    completion_date: string | null;
-    motivation_score: number | null;
-    beds: number | null;
-    size_sqft: number | null;
-    image_url: string | null;
-    listing_url: string | null;
-    drop_pct: number | null;
-    price_original_aed: number | null;
-    days_on_market: number | null;
-    listing_status: string;
-  };
-
-  const rows = (data ?? []) as Row[];
-
-  const listings: OffPlanListing[] = rows.map((r) => {
-    const launchPrice = r.peak_price ?? r.price_original_aed ?? null;
-    let dropSinceLaunch: number | null = null;
-    if (launchPrice !== null && r.price !== null && launchPrice > 0) {
-      dropSinceLaunch = ((launchPrice - r.price) / launchPrice) * 100;
-    }
-    const dropPercent = r.drop_pct ?? dropSinceLaunch;
-    const rawScore = r.motivation_score ?? 0;
-    const motivationScore = rawScore >= 7 ? 'HIGH' : rawScore >= 4 ? 'MEDIUM' : 'LOW';
-
-    return {
-      id: r.id,
-      title: r.title,
-      area: r.area,
-      developer: r.developer,
-      price: r.price,
-      launch_price: launchPrice,
-      drop_since_launch: dropSinceLaunch,
-      drop_percent: dropPercent,
-      payment_plan: r.payment_plan,
-      completion_date: r.completion_date,
-      motivation_score: motivationScore,
-      beds: r.beds,
-      size_sqft: r.size_sqft,
-      image_url: r.image_url,
-      listing_url: r.listing_url,
-    } satisfies OffPlanListing;
-  });
-
-  const mul = sort.direction === 'asc' ? 1 : -1;
-  listings.sort((a, b) => {
-    let va: number | null = null;
-    let vb: number | null = null;
-    switch (sort.field) {
-      case 'price': va = a.price; vb = b.price; break;
-      case 'drop_percent': va = a.drop_percent; vb = b.drop_percent; break;
-      case 'days_on_market': va = null; vb = null; break;
-      case 'motivation_score': {
-        const order: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-        va = order[a.motivation_score] ?? 0;
-        vb = order[b.motivation_score] ?? 0;
-        break;
-      }
-      default: break;
-    }
-    if (va === null && vb === null) return 0;
-    if (va === null) return 1;
-    if (vb === null) return -1;
-    return (va - vb) * mul;
-  });
-
+  const computed = await enrichListings((data ?? []) as Listing[]);
+  const sorted = sortComputedListings(computed, sort.field, sort.direction);
   const offset = (page.page - 1) * page.limit;
-  return listings.slice(offset, offset + page.limit);
+  const sliced = sorted.slice(offset, offset + page.limit);
+
+  return sliced.map((l) => {
+    const launchPrice = l.price_original_aed ?? null;
+    let dropSinceLaunch: number | null = null;
+    if (launchPrice !== null && l.price !== null && launchPrice > 0) {
+      dropSinceLaunch = ((launchPrice - l.price) / launchPrice) * 100;
+    }
+    return { ...l, launch_price: launchPrice, drop_since_launch: dropSinceLaunch };
+  });
 }
 
 export async function getOffPlanAreas(): Promise<string[]> {

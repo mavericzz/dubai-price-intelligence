@@ -240,30 +240,6 @@ export type ComputedListing = Omit<Listing, 'motivation_score' | 'deal_score' | 
 };
 
 // ---------------------------------------------------------------------------
-// Off-plan listing type (used by /off-plan feed)
-// ---------------------------------------------------------------------------
-
-export interface OffPlanListing {
-  id: string;
-  title: string | null;
-  area: string | null;
-  developer: string | null;
-  price: number | null;
-  /** Original launch price (maps to peak_price in DB) */
-  launch_price: number | null;
-  /** Percentage drop since launch; positive = cheaper than launch */
-  drop_since_launch: number | null;
-  drop_percent: number | null;
-  payment_plan: string | null;
-  completion_date: string | null;
-  motivation_score: MotivationLabel;
-  beds: number | null;
-  size_sqft: number | null;
-  image_url: string | null;
-  listing_url: string | null;
-}
-
-// ---------------------------------------------------------------------------
 // Filter / sort / pagination types
 // ---------------------------------------------------------------------------
 
@@ -391,3 +367,15 @@ export interface LeadsResponse {
   data: LeadListing[];
   pagination: LeadsPagination;
 }
+
+// ---------------------------------------------------------------------------
+// Off-plan specific types
+// ---------------------------------------------------------------------------
+
+/** A ComputedListing enriched with off-plan specific display fields. */
+export type OffPlanListing = ComputedListing & {
+  /** Original launch price in AED (= price_original_aed). */
+  launch_price: number | null;
+  /** Percentage drop from launch price to current price (positive = cheaper). */
+  drop_since_launch: number | null;
+};
